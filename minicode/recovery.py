@@ -1,7 +1,9 @@
-"""错误恢复:重试、退避、429/529 处理与模型回退。
+"""Error recovery: retries, backoff, 429/529 handling, and model fallback.
 
-``RecoveryState`` 跨一轮 agent 循环携带恢复相关的可变状态;``with_retry`` 用
-指数退避 + 抖动重试限流/过载错误,连续过载达到阈值时切换到回退模型。
+``RecoveryState`` carries recovery-related mutable state across one agent
+loop run; ``with_retry`` retries rate-limit/overload errors with exponential
+backoff plus jitter, switching to the fallback model after consecutive
+overloads reach the threshold.
 """
 
 import random
@@ -11,7 +13,7 @@ from . import config
 
 
 class RecoveryState:
-    """单轮 agent 循环内的恢复状态(升配、重试计数、当前模型等)。"""
+    """Recovery state for one agent-loop run (escalation, retry counts, model)."""
 
     def __init__(self):
         self.has_escalated = False
@@ -22,13 +24,13 @@ class RecoveryState:
 
 
 def retry_delay(attempt: int) -> float:
-    """指数退避延迟(上限 32s)加上最多 25% 抖动。"""
+    """Exponential backoff delay (capped at 32s) plus up to 25% jitter."""
     base = min(config.BASE_DELAY_MS * (2 ** attempt), 32000) / 1000
     return base + random.uniform(0, base * 0.25)
 
 
 def with_retry(fn, state: RecoveryState):
-    """执行 fn,对 429/529 退避重试;连续过载达阈值则切回退模型。"""
+    """Run fn, retrying 429/529 with backoff; fall back to another model if needed."""
     for attempt in range(config.MAX_RETRIES):
         try:
             result = fn()
@@ -59,7 +61,7 @@ def with_retry(fn, state: RecoveryState):
 
 
 def is_prompt_too_long_error(e: Exception) -> bool:
-    """判断异常是否为“提示词过长 / 超出上下文窗口”类错误。"""
+    """Detect 'prompt too long / context window exceeded' style errors."""
     msg = str(e).lower()
     return (("prompt" in msg and "long" in msg)
             or "context_length_exceeded" in msg

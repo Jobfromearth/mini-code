@@ -1,8 +1,9 @@
-"""基础工具处理器:文件读写、bash、glob、todo,以及通用分发器。
+"""Basic tool handlers: file I/O, bash, glob, todo, and the generic dispatcher.
 
-文件类工具通过 ``safe_path`` 被限制在工作区(或 teammate 的 worktree)内;
-bash 有意保持强大,改由 permission hook 控制。``CURRENT_TODOS`` 是 todo_write
-工具维护的会话级状态 —— 会被重新赋值,外部需通过 ``tools.CURRENT_TODOS`` 访问。
+File tools are confined to the workspace (or a teammate's worktree) via
+``safe_path``; bash remains powerful on purpose and is controlled by the
+permission hook instead. ``CURRENT_TODOS`` is session state maintained by the
+todo_write tool — it gets reassigned, so access it as ``tools.CURRENT_TODOS``.
 """
 
 import ast
@@ -12,14 +13,14 @@ from pathlib import Path
 
 from . import config
 
-# 当前会话的 todo 列表,由 run_todo_write 重新赋值。
+# The current session's todo list, reassigned by run_todo_write.
 CURRENT_TODOS: list[dict] = []
 
 
 def safe_path(p: str, cwd: Path = None) -> Path:
-    """把相对路径解析到工作区内,越界则抛 ValueError。"""
-    # 文件工具留在工作区 / teammate worktree 内;bash 的自由度由 permission
-    # hook 而不是这里限制。
+    """Resolve a relative path inside the workspace; raise ValueError on escape."""
+    # File tools stay inside the workspace or teammate worktree. Bash remains
+    # powerful on purpose and is controlled by the permission hook instead.
     base = cwd or config.WORKDIR
     path = (base / p).resolve()
     if not path.is_relative_to(base):
@@ -29,8 +30,8 @@ def safe_path(p: str, cwd: Path = None) -> Path:
 
 def run_bash(command: str, cwd: Path = None,
              run_in_background: bool = False) -> str:
-    """执行 shell 命令并返回截断后的合并输出(120s 超时)。"""
-    # run_in_background 由分发器消费;直接执行时忽略它。
+    """Run a shell command and return its truncated combined output (120s timeout)."""
+    # run_in_background is consumed by the dispatcher; direct execution ignores it.
     try:
         r = subprocess.run(command, shell=True, cwd=cwd or config.WORKDIR,
                            capture_output=True, text=True, timeout=120)
@@ -42,7 +43,7 @@ def run_bash(command: str, cwd: Path = None,
 
 def run_read(path: str, limit: int | None = None,
              offset: int = 0, cwd: Path = None) -> str:
-    """读取文件文本,支持 offset/limit 分页;出错返回错误字符串。"""
+    """Read file text with offset/limit paging; return an error string on failure."""
     try:
         lines = safe_path(path, cwd).read_text().splitlines()
         offset = max(int(offset or 0), 0)
@@ -56,7 +57,7 @@ def run_read(path: str, limit: int | None = None,
 
 
 def run_write(path: str, content: str, cwd: Path = None) -> str:
-    """写入文件(必要时创建父目录);返回写入字节数或错误。"""
+    """Write a file (creating parent dirs); return byte count or an error."""
     try:
         fp = safe_path(path, cwd)
         fp.parent.mkdir(parents=True, exist_ok=True)
@@ -68,7 +69,7 @@ def run_write(path: str, content: str, cwd: Path = None) -> str:
 
 def run_edit(path: str, old_text: str, new_text: str,
              cwd: Path = None) -> str:
-    """把文件中首个 old_text 替换为 new_text;找不到时返回错误。"""
+    """Replace the first occurrence of old_text with new_text in a file."""
     try:
         fp = safe_path(path, cwd)
         text = fp.read_text()
@@ -81,7 +82,7 @@ def run_edit(path: str, old_text: str, new_text: str,
 
 
 def run_glob(pattern: str, cwd: Path = None) -> str:
-    """在工作区内按 glob 模式匹配文件,返回换行分隔的路径列表。"""
+    """Match files by glob pattern inside the workspace; newline-separated paths."""
     import glob as g
     try:
         base = cwd or config.WORKDIR
@@ -95,7 +96,7 @@ def run_glob(pattern: str, cwd: Path = None) -> str:
 
 
 def call_tool_handler(handler, args: dict, name: str) -> str:
-    """用给定参数调用工具处理器;缺失或签名不匹配时返回错误字符串。"""
+    """Invoke a tool handler with args; return an error string if missing/mismatched."""
     if not handler:
         return f"Unknown: {name}"
     try:
@@ -105,10 +106,11 @@ def call_tool_handler(handler, args: dict, name: str) -> str:
 
 
 def _normalize_todos(todos):
-    """把 todos 规整为校验过的 list;返回 (todos, None) 或 (None, 错误)。
+    """Normalize todos into a validated list; return (todos, None) or (None, error).
 
-    接受 list、JSON 数组字符串,或 Python 字面量列表字符串;字符串走
-    json/ast.literal_eval 解析,绝不 eval,避免任意代码执行。
+    Accepts a list, a JSON array string, or a Python literal list string;
+    strings are parsed via json/ast.literal_eval — never eval — so arbitrary
+    code execution is impossible.
     """
     if isinstance(todos, str):
         try:
@@ -131,7 +133,7 @@ def _normalize_todos(todos):
 
 
 def run_todo_write(todos: list) -> str:
-    """校验并保存会话 todo 列表(副作用:重设 CURRENT_TODOS)。"""
+    """Validate and store the session todo list (reassigns CURRENT_TODOS)."""
     global CURRENT_TODOS
     todos, error = _normalize_todos(todos)
     if error:

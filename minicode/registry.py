@@ -1,9 +1,10 @@
-"""工具注册表:把各子系统的处理函数汇聚成模型可见的工具表。
+"""Tool registry: gathers every subsystem's handlers into the model-visible tool table.
 
-模型看到的是工具 schema(``BUILTIN_TOOLS``),Python 执行的是处理器
-(``BUILTIN_HANDLERS``);两张表都显式列出,让每项能力都集中可见。多数
-run_* 只是给底层子系统函数加一层适配(补默认、格式化输出)。
-``assemble_tool_pool`` 每轮把内置工具 + 已连接的 MCP 工具合并成一个池。
+The model sees tool schemas (``BUILTIN_TOOLS``); Python executes handlers
+(``BUILTIN_HANDLERS``). Both tables are explicit so every capability is
+visible in one place. Most run_* wrappers just adapt an underlying subsystem
+function (defaults, output formatting). ``assemble_tool_pool`` merges builtin
+tools with connected MCP tools each turn.
 """
 
 from . import bus
@@ -20,26 +21,26 @@ from .tools import (run_bash, run_edit, run_glob, run_read, run_todo_write,
 from .worktrees import create_worktree, keep_worktree, remove_worktree
 
 
-# ── Worktree 工具包装 ──
+# ── Worktree tool wrappers ──
 
 def run_create_worktree(name: str, task_id: str = "") -> str:
-    """create_worktree 工具包装。"""
+    """create_worktree tool wrapper."""
     return create_worktree(name, task_id)
 
 def run_remove_worktree(name: str, discard_changes: bool = False) -> str:
-    """remove_worktree 工具包装。"""
+    """remove_worktree tool wrapper."""
     return remove_worktree(name, discard_changes)
 
 def run_keep_worktree(name: str) -> str:
-    """keep_worktree 工具包装。"""
+    """keep_worktree tool wrapper."""
     return keep_worktree(name)
 
 
-# ── 任务工具包装 ──
+# ── Task tool wrappers ──
 
 def run_create_task(subject: str, description: str = "",
                     blockedBy: list[str] | None = None) -> str:
-    """create_task 工具包装:创建任务并返回人类可读结果。"""
+    """create_task tool wrapper: create a task, return a readable result."""
     task = create_task(subject, description, blockedBy)
     deps = f" (blockedBy: {', '.join(blockedBy)})" if blockedBy else ""
     print(f"  \033[34m[create] {task.subject}{deps}\033[0m")
@@ -47,7 +48,7 @@ def run_create_task(subject: str, description: str = "",
 
 
 def run_list_tasks() -> str:
-    """list_tasks 工具包装:列出全部任务。"""
+    """list_tasks tool wrapper: list all tasks."""
     tasks = list_tasks()
     if not tasks:
         return "No tasks."
@@ -58,37 +59,37 @@ def run_list_tasks() -> str:
 
 
 def run_get_task(task_id: str) -> str:
-    """get_task 工具包装:返回任务详情 JSON。"""
+    """get_task tool wrapper: return task details as JSON."""
     try:
         return get_task_json(task_id)
     except FileNotFoundError:
         return f"Error: task {task_id} not found"
 
 def run_claim_task(task_id: str) -> str:
-    """claim_task 工具包装。"""
+    """claim_task tool wrapper."""
     try:
         return claim_task(task_id, owner="agent")
     except FileNotFoundError:
         return f"Error: task {task_id} not found"
 
 def run_complete_task(task_id: str) -> str:
-    """complete_task 工具包装。"""
+    """complete_task tool wrapper."""
     try:
         return complete_task(task_id)
     except FileNotFoundError:
         return f"Error: task {task_id} not found"
 
 def run_spawn_teammate(name: str, role: str, prompt: str) -> str:
-    """spawn_teammate 工具包装。"""
+    """spawn_teammate tool wrapper."""
     return spawn_teammate_thread(name, role, prompt)
 
 def run_send_message(to: str, content: str) -> str:
-    """send_message 工具包装:以 lead 身份发消息。"""
+    """send_message tool wrapper: send as lead."""
     bus.BUS.send("lead", to, content)
     return f"Sent to {to}"
 
 def run_check_inbox() -> str:
-    """check_inbox 工具包装:读取 lead 收件箱并格式化。"""
+    """check_inbox tool wrapper: drain and format the lead inbox."""
     msgs = bus.consume_lead_inbox(route_protocol=True)
     if not msgs:
         return "(inbox empty)"
@@ -101,13 +102,14 @@ def run_check_inbox() -> str:
     return "\n".join(lines)
 
 def run_connect_mcp(name: str) -> str:
-    """connect_mcp 工具包装。"""
+    """connect_mcp tool wrapper."""
     return mcp.connect_mcp(name)
 
 
-# ── 工具 schema 定义 ──
+# ── Tool schema definitions ──
 
-# 模型看到工具 schema;Python 执行处理器。两张表都显式列出,让每项能力集中可见。
+# The model sees tool schemas; Python executes handlers. Both tables are kept
+# explicit so every added capability is visible in one place.
 BUILTIN_TOOLS = [
     {"name": "bash", "description": "Run a shell command.",
      "input_schema": {"type": "object",
@@ -248,7 +250,9 @@ BUILTIN_TOOLS = [
                       "properties": {"name": {"type": "string"}},
                       "required": ["name"]}},
     {"name": "connect_mcp",
-     "description": "Connect to an MCP server (docs, deploy) and discover tools.",
+     "description": ("Connect to an MCP server and discover its tools. "
+                     "Real: filesystem, everything (need Node.js). "
+                     "Mock: docs, deploy."),
      "input_schema": {"type": "object",
                       "properties": {"name": {"type": "string"}},
                       "required": ["name"]}},
@@ -277,7 +281,7 @@ BUILTIN_HANDLERS = {
 
 
 def assemble_tool_pool() -> tuple[list[dict], dict]:
-    """合并内置工具 + 全部已连接 MCP 工具,返回 (工具 schema 表, 处理器表)。"""
+    """Merge builtin tools + all connected MCP tools; return (schemas, handlers)."""
     tools = list(BUILTIN_TOOLS)
     handlers = dict(BUILTIN_HANDLERS)
     for server_name, mcp_client in mcp.mcp_clients.items():

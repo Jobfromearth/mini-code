@@ -1,11 +1,12 @@
-"""消息内容判定小工具:跨 dict / SDK 对象两种表示形式的纯函数。
+"""Message-content predicates: pure functions over dict / SDK-object blocks.
 
-这些 helper 不依赖包内其它模块,被 subagent、teams、compaction、loop 复用。
+These helpers depend on nothing else in the package and are reused by
+subagent, teams, compaction, and loop.
 """
 
 
 def extract_text(content) -> str:
-    """从 assistant content(block 列表)中提取并拼接所有 text 块。"""
+    """Extract and join all text blocks from assistant content (a block list)."""
     if not isinstance(content, list):
         return str(content)
     return "\n".join(
@@ -15,19 +16,20 @@ def extract_text(content) -> str:
 
 
 def has_tool_use(content) -> bool:
-    """判断一段 content 是否包含 tool_use 块(循环的续跑信号)。"""
-    # 不要只依赖 stop_reason;具体的 tool_use 块才是主循环判断是否继续的依据。
+    """Check whether content contains a tool_use block (the loop's continue signal)."""
+    # Do not rely on stop_reason alone; the concrete tool_use block is the
+    # continuation signal used by the loop.
     return any(getattr(block, "type", None) == "tool_use"
                for block in content)
 
 
 def block_type(block):
-    """取出 block 的 type,兼容 dict 与 SDK 对象两种形态。"""
+    """Return a block's type, accepting both dicts and SDK objects."""
     return block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
 
 
 def message_has_tool_use(message: dict) -> bool:
-    """判断一条 assistant 消息是否含 tool_use 块。"""
+    """Check whether an assistant message contains a tool_use block."""
     if message.get("role") != "assistant":
         return False
     content = message.get("content")
@@ -37,7 +39,7 @@ def message_has_tool_use(message: dict) -> bool:
 
 
 def is_tool_result_message(message: dict) -> bool:
-    """判断一条 user 消息是否含 tool_result 块。"""
+    """Check whether a user message contains a tool_result block."""
     if message.get("role") != "user":
         return False
     content = message.get("content")
@@ -48,7 +50,7 @@ def is_tool_result_message(message: dict) -> bool:
 
 
 def collect_tool_results(messages: list):
-    """收集全部 tool_result 块,返回 (消息下标, 块下标, 块) 三元组列表。"""
+    """Collect all tool_result blocks as (message index, block index, block) tuples."""
     found = []
     for mi, msg in enumerate(messages):
         content = msg.get("content")

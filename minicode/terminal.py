@@ -1,9 +1,9 @@
-"""终端输出工具。
+"""Terminal output helpers.
 
-负责在有后台线程并发写终端时,让打印不会破坏用户正在输入的那一行。
-``CLI_ACTIVE`` 是一个会被 ``__main__`` 重新赋值的模块级标志 —— 其它模块必须
-通过 ``terminal.CLI_ACTIVE`` 访问它(不要 ``from terminal import CLI_ACTIVE``,
-否则拿到的是旧绑定)。
+Keeps prints from background threads from clobbering the line the user is
+typing. ``CLI_ACTIVE`` is a module-level flag reassigned by ``__main__`` —
+other modules must access it as ``terminal.CLI_ACTIVE`` (never
+``from terminal import CLI_ACTIVE``, which would capture a stale binding).
 """
 
 import threading
@@ -17,15 +17,16 @@ try:
 except ImportError:
     READLINE_AVAILABLE = False
 
-# 是否处于交互式 CLI 会话;由 __main__ 在启动时置为 True。
+# Whether an interactive CLI session is running; set to True by __main__.
 CLI_ACTIVE = False
 
 
 def terminal_print(text: str):
-    """线程安全地打印一行文本。
+    """Print a line in a thread-safe way.
 
-    主线程(或非 CLI 场景)直接 print;后台线程在 CLI 运行时会先擦除并
-    重绘用户当前输入行,避免输出与输入交错。
+    The main thread (or non-CLI contexts) prints directly; background threads
+    in a live CLI first erase and redraw the user's current input line so
+    output and input don't interleave.
     """
     if threading.current_thread() is threading.main_thread() or not CLI_ACTIVE:
         print(text)

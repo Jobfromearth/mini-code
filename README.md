@@ -22,7 +22,7 @@ Tasks · Worktrees · Skills · Teams · Hooks · Compaction · Cron · MCP — 
 
 It demonstrates, in readable Python, the core mechanisms behind real coding agents:
 
-| Capability | Module | What it teaches |
+| Capability | Module | What it is |
 |---|---|---|
 | 🔧 Tool dispatch | `tools.py` `registry.py` | Schema/handler split; the model sees schemas, Python executes handlers |
 | 🛡️ Permission hooks | `hooks.py` | Deny-lists, destructive-command confirmation, path escapes |

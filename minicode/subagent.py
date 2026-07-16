@@ -1,7 +1,8 @@
-"""Subagent 工具:派生一个专注的子 agent,只返回它的最终摘要。
+"""Subagent tool: spawn a focused child agent that returns only a final summary.
 
-子 agent 有自己独立的 system 提示与工具子集,跑一个受限步数的小循环,
-不能再派生更多 agent。工具执行同样经过 PreToolUse/PostToolUse hook。
+The subagent has its own system prompt and tool subset and runs a bounded
+mini loop; it cannot spawn further agents. Tool execution still goes through
+the PreToolUse/PostToolUse hooks.
 """
 
 from . import config
@@ -54,7 +55,7 @@ SUB_HANDLERS = {
 
 
 def spawn_subagent(description: str) -> str:
-    """同步跑一个子 agent 完成 description,返回它最后的文本摘要。"""
+    """Run a subagent synchronously on the description; return its final text."""
     messages = [{"role": "user", "content": description}]
     for _ in range(30):
         response = config.client.messages.create(

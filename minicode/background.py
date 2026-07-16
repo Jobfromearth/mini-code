@@ -1,10 +1,11 @@
-"""后台任务:慢工具异步执行,结果稍后作为通知注入主循环。
+"""Background tasks: slow tools run async; results are injected later as notifications.
 
-慢工具(安装 / 构建 / 测试等)立刻返回一个占位 tool_result,真实输出在后台
-线程完成后,以 task_notification 的形式回注,让主循环不被阻塞。
+Slow tools (install / build / test, etc.) return a placeholder tool_result
+immediately. Their real output is later injected as a task_notification, so
+the main loop can keep moving.
 
-``_bg_counter`` / ``background_tasks`` / ``background_results`` 是被后台线程与
-主线程共享的可变状态,统一用 ``background_lock`` 保护。
+``_bg_counter`` / ``background_tasks`` / ``background_results`` are shared
+between worker threads and the main thread, guarded by ``background_lock``.
 """
 
 import threading
@@ -19,7 +20,7 @@ background_lock = threading.Lock()
 
 
 def is_slow_operation(tool_name: str, tool_input: dict) -> bool:
-    """按命令关键词启发式判断某个 bash 命令是否属于慢操作。"""
+    """Heuristically classify a bash command as slow by keyword."""
     if tool_name != "bash":
         return False
     command = tool_input.get("command", "").lower()
@@ -30,14 +31,14 @@ def is_slow_operation(tool_name: str, tool_input: dict) -> bool:
 
 
 def should_run_background(tool_name: str, tool_input: dict) -> bool:
-    """判断某工具调用是否应转入后台(显式 run_in_background 或慢操作)。"""
+    """Decide whether a tool call should go to the background."""
     if tool_name != "bash":
         return False
     return bool(tool_input.get("run_in_background")) or is_slow_operation(tool_name, tool_input)
 
 
 def start_background_task(block, handlers: dict) -> str:
-    """在后台线程执行工具调用,登记任务并立刻返回 bg_id。"""
+    """Execute a tool call on a worker thread; register it and return the bg_id."""
     global _bg_counter
     _bg_counter += 1
     bg_id = f"bg_{_bg_counter:04d}"
@@ -63,7 +64,7 @@ def start_background_task(block, handlers: dict) -> str:
 
 
 def collect_background_results() -> list[str]:
-    """取出已完成的后台任务,格式化成 task_notification 文本列表。"""
+    """Drain completed background tasks, formatted as task_notification texts."""
     with background_lock:
         ready = [bg_id for bg_id, task in background_tasks.items()
                  if task["status"] == "completed"]

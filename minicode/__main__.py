@@ -1,7 +1,8 @@
-"""CLI 入口:``python -m minicode``。
+"""CLI entry point: ``python -m minicode``.
 
-启动一个 lead 交互会话:后台跑 cron 自动运行线程,前台读用户输入、跑一轮
-agent 循环、打印回复,并把 lead 收件箱里的消息回注到对话。
+Starts an interactive lead session: the cron autorun thread runs in the
+background while the foreground reads user input, runs an agent turn, prints
+replies, and feeds the lead inbox back into the conversation.
 """
 
 import threading
@@ -16,7 +17,7 @@ from .loop import (agent_loop, cron_autorun_loop, print_turn_assistants,
 
 
 def main():
-    """运行交互式 lead CLI,直到用户输入 q/exit 或按下 Ctrl-C/EOF。"""
+    """Run the interactive lead CLI until the user types q/exit or hits Ctrl-C/EOF."""
     terminal.CLI_ACTIVE = True
     print("minicode: comprehensive agent")
     print("Enter a question, press Enter to send. Type q to quit.\n")

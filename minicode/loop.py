@@ -1,10 +1,12 @@
-"""Agent 主循环:上下文预算管线 + 一轮轮的模型调用与工具执行。
+"""Agent main loop: the context-budget pipeline plus turn-by-turn model calls.
 
-每轮流程:注入到点的 cron / 后台通知 → 走上下文预算管线 → 调模型 →
-执行 tool_use 块 → 追加 tool_result → 重复,直到模型不再请求工具。
+One cycle: inject fired cron / background notifications, run the context
+budget pipeline, call the model, execute tool_use blocks, append
+tool_results, repeat — until the model stops requesting tools.
 
-``rounds_since_todo`` 会被重新赋值,内部通过 ``global`` 维护;外部若需读取
-应使用 ``loop.rounds_since_todo``。``agent_lock`` 序列化主循环与 cron 自动运行。
+``rounds_since_todo`` is reassigned (managed via ``global``); external readers
+should use ``loop.rounds_since_todo``. ``agent_lock`` serializes the main loop
+against the cron autorun thread.
 """
 
 import threading
@@ -27,7 +29,7 @@ from .tools import call_tool_handler
 
 
 def update_context(context: dict, messages: list) -> dict:
-    """从磁盘 memory 和运行时状态刷新 context(memory、MCP、teammate)。"""
+    """Refresh context from disk memory and runtime state (memory, MCP, teammates)."""
     memories = ""
     if config.MEMORY_INDEX.exists():
         memories = config.MEMORY_INDEX.read_text()[:2000]
@@ -43,7 +45,7 @@ agent_lock = threading.Lock()
 
 
 def prepare_context(messages: list) -> list:
-    """让每轮 LLM 调用都经过同一条上下文预算管线(就地修改 messages)。"""
+    """Run every LLM turn through the same context budget pipeline (mutates messages)."""
     messages[:] = tool_result_budget(messages)
     messages[:] = snip_compact(messages)
     messages[:] = micro_compact(messages)
@@ -53,7 +55,9 @@ def prepare_context(messages: list) -> list:
 
 
 def build_user_content(results: list[dict]) -> list[dict]:
-    """把 tool_result 与已完成的后台通知一起作为 user 侧内容返回。"""
+    """Return tool_results plus completed background notifications as user content."""
+    # Tool results and completed background notifications are both returned to
+    # the model as user-side content, matching the tool_result feedback loop.
     content = list(results)
     for note in collect_background_results():
         content.append({"type": "text", "text": note})
@@ -61,7 +65,7 @@ def build_user_content(results: list[dict]) -> list[dict]:
 
 
 def inject_background_notifications(messages: list):
-    """若有已完成的后台任务,追加一条包含其通知的 user 消息。"""
+    """Append a user message with notifications for any finished background tasks."""
     notes = collect_background_results()
     if notes:
         messages.append({"role": "user", "content": [
@@ -70,7 +74,7 @@ def inject_background_notifications(messages: list):
 
 def call_llm(messages: list, context: dict, tools: list,
              state: RecoveryState, max_tokens: int):
-    """组装系统提示词并带重试地调用模型。"""
+    """Assemble the system prompt and call the model with retry."""
     system = assemble_system_prompt(context)
     return with_retry(
         lambda: config.client.messages.create(
@@ -83,15 +87,15 @@ def call_llm(messages: list, context: dict, tools: list,
 
 
 def agent_loop(messages: list, context: dict):
-    """驱动一整轮 agent 对话直到模型停止请求工具(就地修改 messages)。"""
+    """Drive one full agent turn until the model stops requesting tools (mutates messages)."""
     global rounds_since_todo
     tools, handlers = assemble_tool_pool()
     state = RecoveryState()
     max_tokens = config.DEFAULT_MAX_TOKENS
 
     while True:
-        # 一个循环周期:注入定时/后台工作、准备上下文、调模型、执行 tool_use
-        # 块、追加 tool_result、再循环。
+        # One cycle: inject scheduled/background work, prepare context, call
+        # the model, execute tool_use blocks, append tool_results, repeat.
         fired = consume_cron_queue()
         for job in fired:
             messages.append({"role": "user",
@@ -190,7 +194,7 @@ def agent_loop(messages: list, context: dict):
 
 
 def print_turn_assistants(messages: list, turn_start: int):
-    """打印本轮(从 turn_start 起)所有 assistant 文本块。"""
+    """Print all assistant text blocks produced this turn (from turn_start on)."""
     for msg in messages[turn_start:]:
         if msg.get("role") != "assistant":
             continue
@@ -200,7 +204,7 @@ def print_turn_assistants(messages: list, turn_start: int):
 
 
 def cron_autorun_loop(history: list, context: dict):
-    """后台线程:cron 任务到点时,在锁内自动跑一轮 agent 并打印结果。"""
+    """Autorun thread: when cron jobs fire, run an agent turn under the lock and print."""
     import time
     while True:
         time.sleep(1)

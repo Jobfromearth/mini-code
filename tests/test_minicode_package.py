@@ -1,15 +1,15 @@
-"""重构后 minicode 包的行为验证测试。
+"""Behavioral tests for the refactored minicode package.
 
-覆盖点:
-- 每个模块都能被导入(无循环导入、无缺失符号);
-- todo_write 接受 JSON / Python 字面量字符串,且绝不 eval 输入;
-- has_tool_use 正确识别 tool_use 块;
-- snip_compact / reactive_compact 压缩时保持 tool_use/tool_result 成对;
-- 后台任务判定逻辑正确;
-- 顶层 code.py 薄壳仍暴露常用符号。
+Coverage:
+- every module imports (no circular imports, no missing symbols);
+- todo_write accepts JSON / Python-literal strings and never evals input;
+- has_tool_use correctly detects tool_use blocks;
+- snip_compact / reactive_compact keep tool_use/tool_result pairs intact;
+- background-task classification;
+- the top-level code.py shim still exposes the common symbols.
 
-运行:``python -m pytest tests/test_minicode_package.py -v``
-需要环境变量 MODEL_ID(测试自动设置)与被 fake 掉的 anthropic/dotenv。
+Run: ``python -m pytest tests/test_minicode_package.py -v``
+Needs MODEL_ID (set automatically) and faked anthropic/dotenv modules.
 """
 
 import importlib
@@ -23,7 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _install_fakes():
-    """安装 fake 的 anthropic/dotenv,避免真实网络/密钥依赖。"""
+    """Install fake anthropic/dotenv modules to avoid real network/key deps."""
     fake_anthropic = types.ModuleType("anthropic")
 
     class FakeAnthropic:
@@ -77,7 +77,7 @@ def tool_result_message(tool_id="tool-1"):
 
 
 def assert_no_orphan_tool_results(testcase, messages):
-    """校验:任何含 tool_result 的 user 消息前一条都必须含 tool_use。"""
+    """Assert every user message holding a tool_result follows a tool_use message."""
     from minicode.content import message_has_tool_use
     for idx, message in enumerate(messages):
         content = message.get("content")

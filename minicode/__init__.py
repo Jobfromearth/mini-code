@@ -1,10 +1,11 @@
-"""minicode —— 教学用的迷你版编码 Agent。
+"""minicode — a minimal coding agent.
 
-这个包把原本挤在单个 code.py 里的十几个子系统(任务、worktree、skills、
-工具、消息总线、协议、hooks、上下文压缩、错误恢复、cron、MCP、agent 主循环)
-按关注点拆成独立模块,并按依赖方向分层组织,便于阅读、测试与复用。
+This package splits what used to be a single monolithic code.py into modules
+organized by concern (tasks, worktrees, skills, tools, message bus, protocol,
+hooks, context compaction, error recovery, cron, MCP, and the agent main
+loop), layered so that dependencies point strictly downward.
 
-入口:``python -m minicode``(见 :mod:`minicode.__main__`)。
+Entry point: ``python -m minicode`` (see :mod:`minicode.__main__`).
 """
 
 __version__ = "1.0.0"

@@ -1,11 +1,12 @@
-"""Skill 加载与系统提示词组装。
+"""Skill loading and system-prompt assembly.
 
-Skill 是磁盘上的 ``skills/<name>/SKILL.md``,带 YAML frontmatter。系统提示词
-每一轮都从实时 context 重新拼装,让 memory、skill 目录、MCP 状态可见。
-副作用:import 时扫描一次 skills 目录。
+A skill is an on-disk ``skills/<name>/SKILL.md`` with YAML frontmatter. The
+system prompt is rebuilt each turn from live context so that memory, the
+skill catalog, and MCP state stay visible. Side effect: scans the skills
+directory once on import.
 
-注意:``assemble_system_prompt`` 需要读取当前已连接的 MCP 服务器,通过
-``import ... mcp`` 后访问 ``mcp.mcp_clients``(原地修改的 dict,读取安全)。
+Note: ``assemble_system_prompt`` reads the currently connected MCP servers via
+``mcp.mcp_clients`` (a dict mutated in place, safe to read through the module).
 """
 
 from datetime import datetime
@@ -19,7 +20,7 @@ SKILL_REGISTRY: dict[str, dict] = {}
 
 
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
-    """解析 ``---`` YAML frontmatter,返回 (元数据 dict, 正文)。"""
+    """Parse ``---`` YAML frontmatter; return (metadata dict, body)."""
     if not text.startswith("---"):
         return {}, text
     parts = text.split("---", 2)
@@ -33,7 +34,7 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
 
 
 def scan_skills():
-    """(重新)扫描 skills 目录,填充 SKILL_REGISTRY(副作用:读磁盘)。"""
+    """(Re)scan the skills directory and fill SKILL_REGISTRY (reads disk)."""
     SKILL_REGISTRY.clear()
     if not config.SKILLS_DIR.exists():
         return
@@ -58,7 +59,7 @@ scan_skills()
 
 
 def list_skills() -> str:
-    """返回 skill 名称 + 描述的简短清单,用于系统提示词。"""
+    """Return a short name + description catalog for the system prompt."""
     if not SKILL_REGISTRY:
         return "(no skills found)"
     return "\n".join(
@@ -67,7 +68,7 @@ def list_skills() -> str:
 
 
 def load_skill(name: str) -> str:
-    """返回某个 skill 的完整内容;不存在时返回可用列表提示。"""
+    """Return a skill's full content, or a hint listing available skills."""
     skill = SKILL_REGISTRY.get(name)
     if not skill:
         available = ", ".join(SKILL_REGISTRY.keys()) or "(none)"
@@ -91,10 +92,10 @@ PROMPT_SECTIONS = {
 
 
 def assemble_system_prompt(context: dict) -> str:
-    """从实时 context 重新拼装系统提示词。
+    """Rebuild the system prompt from live context.
 
-    每轮 LLM 调用前调用一次,把 memory、skill 目录、MCP 状态、当前时间
-    汇入提示词。
+    Called once before each LLM call; folds memory, the skill catalog, MCP
+    state, and the current time into the prompt.
     """
     sections = [PROMPT_SECTIONS["identity"],
                 PROMPT_SECTIONS["tools"],

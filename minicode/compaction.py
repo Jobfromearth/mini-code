@@ -1,8 +1,9 @@
-"""上下文压缩:分层缩减对话规模。
+"""Context compaction: layered reduction of conversation size.
 
-分层策略:先压缩超大的 tool_result,再裁剪旧的消息区间,只有当上下文仍然
-过大或模型显式请求 compact 时,才调用模型做摘要。压缩时始终保持
-tool_use / tool_result 成对,避免产生孤立的 tool_result。
+Compaction is layered: first shrink oversized tool results, then trim old
+message ranges, and only call the model for a summary when the context is
+still too large or the model explicitly asks for compact. All strategies keep
+tool_use / tool_result pairs together so no orphan tool_results are produced.
 """
 
 import json
@@ -15,12 +16,12 @@ from .content import (collect_tool_results, extract_text,
 
 
 def estimate_size(messages: list) -> int:
-    """用 JSON 序列化长度粗略估计消息列表的字节规模。"""
+    """Roughly estimate message-list size via JSON-serialized length."""
     return len(json.dumps(messages, default=str))
 
 
 def persist_large_output(tool_use_id: str, output: str) -> str:
-    """超阈值的工具输出落盘,返回带预览的占位文本(副作用:写磁盘)。"""
+    """Persist an over-threshold tool output to disk; return a preview placeholder."""
     if len(output) <= config.PERSIST_THRESHOLD:
         return output
     config.TOOL_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -32,7 +33,7 @@ def persist_large_output(tool_use_id: str, output: str) -> str:
 
 
 def tool_result_budget(messages: list, max_bytes: int = 200_000) -> list:
-    """把最后一条 user 消息里超预算的 tool_result 逐个落盘缩减。"""
+    """Shrink over-budget tool_results in the last user message by persisting them."""
     if not messages:
         return messages
     last = messages[-1]
@@ -57,7 +58,7 @@ def tool_result_budget(messages: list, max_bytes: int = 200_000) -> list:
 
 
 def snip_compact(messages: list, max_messages: int = 50) -> list:
-    """超过 max_messages 时裁掉中段,保留头尾并维持 tool 对完整。"""
+    """Snip the middle when over max_messages, keeping head/tail and tool pairs."""
     if len(messages) <= max_messages:
         return messages
     head_end, tail_start = 3, len(messages) - (max_messages - 3)
@@ -77,7 +78,7 @@ def snip_compact(messages: list, max_messages: int = 50) -> list:
 
 
 def micro_compact(messages: list) -> list:
-    """把较旧的大 tool_result 就地替换为占位提示,保留最近若干条。"""
+    """Replace older large tool_results in place, keeping the most recent few."""
     tool_results = collect_tool_results(messages)
     if len(tool_results) <= config.KEEP_RECENT_TOOL_RESULTS:
         return messages
@@ -88,7 +89,7 @@ def micro_compact(messages: list) -> list:
 
 
 def write_transcript(messages: list) -> Path:
-    """把完整消息列表写成一个 JSONL transcript,返回其路径。"""
+    """Write the full message list as a JSONL transcript; return its path."""
     config.TRANSCRIPT_DIR.mkdir(parents=True, exist_ok=True)
     path = config.TRANSCRIPT_DIR / f"transcript_{int(time.time())}.jsonl"
     with path.open("w") as f:
@@ -98,7 +99,7 @@ def write_transcript(messages: list) -> Path:
 
 
 def summarize_history(messages: list) -> str:
-    """调用模型把对话摘要成可继续工作的简报。"""
+    """Ask the model to summarize the conversation so work can continue."""
     conversation = json.dumps(messages, default=str)[:80000]
     prompt = ("Summarize this coding-agent conversation so work can continue. "
               "Preserve current goal, key findings, changed files, remaining work, "
@@ -111,7 +112,7 @@ def summarize_history(messages: list) -> str:
 
 
 def compact_history(messages: list) -> list:
-    """存档 transcript 后,用一条摘要消息替换整段历史。"""
+    """Archive a transcript, then replace the whole history with one summary message."""
     transcript = write_transcript(messages)
     print(f"  \033[36m[compact] transcript saved: {transcript}\033[0m")
     summary = summarize_history(messages)
@@ -119,7 +120,7 @@ def compact_history(messages: list) -> list:
 
 
 def reactive_compact(messages: list) -> list:
-    """prompt-too-long 后的应急压缩:摘要旧历史,原样保留最近 tail。"""
+    """Emergency compaction after prompt-too-long: summarize old history, keep the tail."""
     transcript = write_transcript(messages)
     print(f"  \033[31m[reactive compact] transcript saved: {transcript}\033[0m")
     tail_start = max(0, len(messages) - 5)

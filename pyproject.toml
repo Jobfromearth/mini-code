@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "minicode"
 version = "1.0.0"
-description = "Teaching-oriented mini coding agent: tasks, worktrees, skills, teams, cron, MCP in one layered package"
+description = "Minimal coding agent: tasks, worktrees, skills, teams, cron, MCP in one layered package"
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.10"

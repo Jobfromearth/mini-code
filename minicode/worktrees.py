@@ -1,7 +1,8 @@
-"""Worktree 系统:隔离的 git worktree 管理 + git 命令封装 + 事件日志。
+"""Worktree system: isolated git worktrees + git wrapper + event log.
 
-Worktree 名会变成文件系统路径,所以校验规则保持严格,并在 create/remove/keep
-之间复用同一套校验。副作用:import 时创建 ``.worktrees`` 目录。
+Worktree names become filesystem paths, so the validation rules stay strict
+and are reused across create/remove/keep. Side effect: creates the
+``.worktrees`` directory on import.
 """
 
 import json
@@ -19,7 +20,7 @@ VALID_WT_NAME = re.compile(r'^[A-Za-z0-9._-]{1,64}$')
 
 
 def validate_worktree_name(name: str) -> str | None:
-    """校验 worktree 名;合法返回 None,否则返回错误信息。"""
+    """Validate a worktree name; return None if valid, else an error message."""
     if not name:
         return "Worktree name cannot be empty"
     if name in (".", ".."):
@@ -31,7 +32,7 @@ def validate_worktree_name(name: str) -> str | None:
 
 
 def run_git(args: list[str]) -> tuple[bool, str]:
-    """在 WORKDIR 下运行一条 git 命令,返回 (是否成功, 截断后的输出)。"""
+    """Run a git command in WORKDIR; return (success, truncated output)."""
     try:
         r = subprocess.run(["git"] + args, cwd=config.WORKDIR,
                            capture_output=True, text=True, timeout=30)
@@ -42,7 +43,7 @@ def run_git(args: list[str]) -> tuple[bool, str]:
 
 
 def log_event(event_type: str, worktree_name: str, task_id: str = ""):
-    """把一条 worktree 事件追加到 events.jsonl(副作用:写磁盘)。"""
+    """Append a worktree event to events.jsonl (side effect: disk write)."""
     event = {"type": event_type, "worktree": worktree_name,
              "task_id": task_id, "ts": time.time()}
     events_file = config.WORKTREES_DIR / "events.jsonl"
@@ -51,9 +52,9 @@ def log_event(event_type: str, worktree_name: str, task_id: str = ""):
 
 
 def create_worktree(name: str, task_id: str = "") -> str:
-    """新建一个 git worktree(可选绑定任务);返回结果说明字符串。"""
-    # 工具层校验是安全边界的一部分:要在 git 看到名字之前做,而不是只依赖
-    # git 恰好拒绝了某些输入。
+    """Create a git worktree (optionally bound to a task); return a status string."""
+    # Tool-layer validation is part of the safety boundary; do it before git
+    # sees the name, not only after git happens to reject something.
     err = validate_worktree_name(name)
     if err:
         return f"Error: {err}"
@@ -76,14 +77,14 @@ def create_worktree(name: str, task_id: str = "") -> str:
 
 
 def bind_task_to_worktree(task_id: str, worktree_name: str):
-    """把某任务的 worktree 字段指向给定 worktree(副作用:写任务文件)。"""
+    """Point a task's worktree field at the given worktree (writes the task file)."""
     task = load_task(task_id)
     task.worktree = worktree_name
     save_task(task)
 
 
 def _count_worktree_changes(path: Path) -> tuple[int, int]:
-    """返回 (未提交文件数, 未推送提交数);无法确定时返回 (-1, -1)。"""
+    """Return (uncommitted file count, unpushed commit count); (-1, -1) if unknown."""
     try:
         r1 = subprocess.run(["git", "status", "--porcelain"],
                             cwd=path, capture_output=True, text=True, timeout=10)
@@ -97,7 +98,7 @@ def _count_worktree_changes(path: Path) -> tuple[int, int]:
 
 
 def remove_worktree(name: str, discard_changes: bool = False) -> str:
-    """删除一个 worktree;若存在未保存改动且未强制则拒绝。"""
+    """Remove a worktree; refuse if unsaved changes exist and not forced."""
     err = validate_worktree_name(name)
     if err:
         return err
@@ -121,7 +122,7 @@ def remove_worktree(name: str, discard_changes: bool = False) -> str:
 
 
 def keep_worktree(name: str) -> str:
-    """保留 worktree 供人工审查(只记事件,不删除)。"""
+    """Keep a worktree for manual review (logs an event, removes nothing)."""
     err = validate_worktree_name(name)
     if err:
         return err

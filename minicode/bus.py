@@ -1,11 +1,13 @@
-"""消息总线与协议状态:teammate 之间的通信基座。
+"""Message bus and protocol state: the communication substrate for teammates.
 
-团队通信用追加式 JSONL 邮箱实现,让协议在磁盘上可检视,也让后台 teammate
-能发消息。协议状态(shutdown / plan_approval)按 request_id 匹配,防止一条
-回复误批到另一条挂起请求。副作用:import 时创建 ``.mailboxes`` 目录。
+Team communication is append-only JSONL mailboxes. This keeps the protocol
+inspectable on disk and lets background teammates send messages. Protocol
+state (shutdown / plan_approval) is matched by request_id so one reply cannot
+approve a different pending request. Side effect: creates the ``.mailboxes``
+directory on import.
 
-``BUS``、``active_teammates``、``pending_requests`` 都是共享可变状态,统一通过
-``bus.<name>`` 访问。
+``BUS``, ``active_teammates``, and ``pending_requests`` are shared mutable
+state; access them through the module (``bus.<name>``).
 """
 
 import json
@@ -20,11 +22,11 @@ config.MAILBOX_DIR.mkdir(exist_ok=True)
 
 
 class MessageBus:
-    """基于每 agent 一个 JSONL 邮箱文件的极简消息总线。"""
+    """A minimal message bus backed by one JSONL mailbox file per agent."""
 
     def send(self, from_agent: str, to_agent: str, content: str,
              msg_type: str = "message", metadata: dict = None):
-        """把一条消息追加到收件人邮箱(副作用:写磁盘 + 打印)。"""
+        """Append a message to the recipient's mailbox (writes disk, prints)."""
         msg = {"from": from_agent, "to": to_agent,
                "content": content, "type": msg_type,
                "ts": time.time(), "metadata": metadata or {}}
@@ -35,7 +37,7 @@ class MessageBus:
                        f"({msg_type}) {content[:50]}\033[0m")
 
     def read_inbox(self, agent: str) -> list[dict]:
-        """读取并清空某 agent 的邮箱,返回消息列表(副作用:删文件)。"""
+        """Read and drain an agent's mailbox; returns the messages (deletes file)."""
         inbox = config.MAILBOX_DIR / f"{agent}.jsonl"
         if not inbox.exists():
             return []
@@ -51,7 +53,7 @@ active_teammates: dict[str, bool] = {}
 
 @dataclass
 class ProtocolState:
-    """一条挂起的协议请求(shutdown 或 plan_approval)的状态。"""
+    """State of one pending protocol request (shutdown or plan_approval)."""
     request_id: str
     type: str
     sender: str
@@ -65,14 +67,14 @@ pending_requests: dict[str, ProtocolState] = {}
 
 
 def new_request_id() -> str:
-    """生成一个随机的协议请求 id。"""
+    """Generate a random protocol request id."""
     return f"req_{random.randint(0, 999999):06d}"
 
 
 def match_response(response_type: str, request_id: str, approve: bool):
-    """按 request_id 把一条协议回复匹配到挂起请求并更新其状态。"""
-    # 按 request_id 匹配,确保一条回复不会批准到另一条挂起请求;并校验
-    # 回复类型与请求类型一致。
+    """Match a protocol reply to its pending request by id and update its status."""
+    # Responses are matched by request_id so one protocol reply cannot approve
+    # a different pending request; the reply type must also match the request.
     state = pending_requests.get(request_id)
     if not state:
         return
@@ -84,7 +86,7 @@ def match_response(response_type: str, request_id: str, approve: bool):
 
 
 def consume_lead_inbox(route_protocol=True) -> list[dict]:
-    """读取 lead 邮箱;可选地把其中的协议回复路由给 match_response。"""
+    """Drain the lead mailbox; optionally route protocol replies to match_response."""
     msgs = BUS.read_inbox("lead")
     if route_protocol:
         for msg in msgs:

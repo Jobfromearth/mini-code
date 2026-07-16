@@ -1,26 +1,27 @@
-"""Hook 管线:权限、日志、大输出、停止等横切行为。
+"""Hook pipeline: permission, logging, large-output, and stop behaviors.
 
-Hook 有意放在工具处理器之外,这样主循环可以在不改动每个工具的前提下加上
-权限、日志、停止行为。副作用:import 时注册默认 hook。
+Hooks are intentionally outside tool handlers. The loop can add permission,
+logging, and stop behavior without changing each individual tool. Side
+effect: registers the default hooks on import.
 
-``HOOKS`` 是原地修改的 dict(注册即 append),读取安全。
+``HOOKS`` is a dict mutated in place (registration appends), safe to read.
 """
 
 from . import config
 from .tools import safe_path
 
-# 事件名 → 回调列表。
+# Event name → list of callbacks.
 HOOKS = {"UserPromptSubmit": [], "PreToolUse": [],
          "PostToolUse": [], "Stop": []}
 
 
 def register_hook(event: str, callback):
-    """把回调追加到某事件的 hook 列表。"""
+    """Append a callback to an event's hook list."""
     HOOKS[event].append(callback)
 
 
 def trigger_hooks(event: str, *args):
-    """依次调用某事件的 hook;任一返回非 None 即短路返回该值。"""
+    """Call an event's hooks in order; the first non-None result short-circuits."""
     for callback in HOOKS[event]:
         result = callback(*args)
         if result is not None:
@@ -33,10 +34,13 @@ DESTRUCTIVE = ["rm ", "> /etc/", "chmod 777"]
 
 
 def permission_hook(block):
-    """PreToolUse 权限门:拦截 deny 命令、越界写入、危险 MCP 工具。
+    """PreToolUse permission gate: deny-listed commands, path escapes, risky MCP tools.
 
-    返回错误字符串表示拒绝执行;返回 None 表示放行。可能通过 input() 询问用户。
+    Returning an error string blocks execution; returning None allows it.
+    May prompt the user via input().
     """
+    # The permission layer sees the raw tool_use before dispatch. It can deny,
+    # ask the user, or allow execution to continue.
     if block.name == "bash":
         command = block.input.get("command", "")
         for pattern in DENY_LIST:
@@ -63,13 +67,13 @@ def permission_hook(block):
 
 
 def log_hook(block):
-    """PreToolUse 日志 hook:打印将要执行的工具名。"""
+    """PreToolUse logging hook: print the tool about to run."""
     print(f"\033[90m[HOOK] {block.name}\033[0m")
     return None
 
 
 def large_output_hook(block, output):
-    """PostToolUse hook:输出过大时打印告警。"""
+    """PostToolUse hook: warn when a tool produced very large output."""
     if len(str(output)) > 100000:
         print(f"\033[33m[HOOK] large output from {block.name}: "
               f"{len(str(output))} chars\033[0m")
@@ -77,13 +81,13 @@ def large_output_hook(block, output):
 
 
 def user_prompt_hook(query: str):
-    """UserPromptSubmit hook:打印当前工作目录。"""
+    """UserPromptSubmit hook: print the current working directory."""
     print(f"\033[90m[HOOK] UserPromptSubmit: {config.WORKDIR}\033[0m")
     return None
 
 
 def stop_hook(messages: list):
-    """Stop hook:统计并打印本轮产生的 tool_result 数量。"""
+    """Stop hook: count and print tool_results produced this turn."""
     tool_count = 0
     for msg in messages:
         content = msg.get("content")

@@ -1,10 +1,11 @@
-"""Cron 调度器:定时把 prompt 注入 agent 循环。
+"""Cron scheduler: inject prompts into the agent loop on a schedule.
 
-Cron 任务与对话历史分开存储。任务触发时变成一个 scheduled prompt,被回注到
-同一个 agent 循环。副作用:import 时加载持久化任务并启动后台调度线程。
+Cron jobs are stored separately from conversation history. When a job fires,
+it becomes a scheduled prompt that is injected back into the same agent loop.
+Side effects on import: loads durable jobs and starts the scheduler thread.
 
-``scheduled_jobs`` / ``cron_queue`` / ``_last_fired`` 由调度线程与主线程共享,
-统一用 ``cron_lock`` 保护。
+``scheduled_jobs`` / ``cron_queue`` / ``_last_fired`` are shared between the
+scheduler thread and the main thread, guarded by ``cron_lock``.
 """
 
 import json
@@ -19,7 +20,7 @@ from . import config
 
 @dataclass
 class CronJob:
-    """一条定时任务:5 段 cron 表达式 + 触发时注入的 prompt。"""
+    """A scheduled job: 5-field cron expression + prompt injected on fire."""
     id: str
     cron: str
     prompt: str
@@ -34,7 +35,7 @@ _last_fired: dict[str, str] = {}
 
 
 def _cron_field_matches(field: str, value: int) -> bool:
-    """判断单个 cron 字段(*, */n, a-b, 列表, 具体值)是否匹配 value。"""
+    """Match a single cron field (*, */n, a-b, list, literal) against a value."""
     if field == "*":
         return True
     if field.startswith("*/"):
@@ -50,7 +51,7 @@ def _cron_field_matches(field: str, value: int) -> bool:
 
 
 def cron_matches(cron_expr: str, dt: datetime) -> bool:
-    """判断某个 5 段 cron 表达式是否匹配给定时间(含 dom/dow 或语义)。"""
+    """Check whether a 5-field cron expression matches a datetime (dom/dow OR)."""
     fields = cron_expr.strip().split()
     if len(fields) != 5:
         return False
@@ -73,7 +74,7 @@ def cron_matches(cron_expr: str, dt: datetime) -> bool:
 
 
 def _validate_cron_field(field: str, lo: int, hi: int) -> str | None:
-    """校验单个 cron 字段的语法与边界;合法返回 None。"""
+    """Validate one cron field's syntax and bounds; None if valid."""
     if field == "*":
         return None
     if field.startswith("*/"):
@@ -106,7 +107,7 @@ def _validate_cron_field(field: str, lo: int, hi: int) -> str | None:
 
 
 def validate_cron(cron_expr: str) -> str | None:
-    """校验整条 5 段 cron 表达式;合法返回 None,否则返回错误信息。"""
+    """Validate a full 5-field cron expression; None if valid, else an error."""
     fields = cron_expr.strip().split()
     if len(fields) != 5:
         return f"Expected 5 fields, got {len(fields)}"
@@ -120,13 +121,13 @@ def validate_cron(cron_expr: str) -> str | None:
 
 
 def save_durable_jobs():
-    """把标记为 durable 的任务持久化到磁盘(副作用:写文件)。"""
+    """Persist jobs marked durable to disk (writes a file)."""
     durable = [asdict(job) for job in scheduled_jobs.values() if job.durable]
     config.DURABLE_PATH.write_text(json.dumps(durable, indent=2))
 
 
 def load_durable_jobs():
-    """从磁盘加载持久化任务(跳过 cron 非法者)。"""
+    """Load persisted jobs from disk (skipping ones with invalid cron)."""
     if not config.DURABLE_PATH.exists():
         return
     try:
@@ -140,7 +141,7 @@ def load_durable_jobs():
 
 def schedule_job(cron: str, prompt: str,
                  recurring: bool = True, durable: bool = True) -> "CronJob | str":
-    """注册一条 cron 任务;cron 非法时返回错误字符串,否则返回 CronJob。"""
+    """Register a cron job; return an error string for invalid cron, else the CronJob."""
     err = validate_cron(cron)
     if err:
         return err
@@ -156,7 +157,7 @@ def schedule_job(cron: str, prompt: str,
 
 
 def cancel_job(job_id: str) -> str:
-    """取消一条 cron 任务;返回结果说明字符串。"""
+    """Cancel a cron job; return a status string."""
     with cron_lock:
         job = scheduled_jobs.pop(job_id, None)
     if not job:
@@ -167,7 +168,7 @@ def cancel_job(job_id: str) -> str:
 
 
 def cron_scheduler_loop():
-    """后台线程:每秒检查一次,把到点的任务放入 cron_queue。"""
+    """Scheduler thread: check every second and queue jobs whose time matches."""
     while True:
         time.sleep(1)
         now = datetime.now()
@@ -187,7 +188,7 @@ def cron_scheduler_loop():
 
 
 def consume_cron_queue() -> list[CronJob]:
-    """取出并清空 cron_queue,返回已触发的任务列表。"""
+    """Drain and return the fired-job queue."""
     with cron_lock:
         fired = list(cron_queue)
         cron_queue.clear()
@@ -196,7 +197,7 @@ def consume_cron_queue() -> list[CronJob]:
 
 def run_schedule_cron(cron: str, prompt: str,
                       recurring: bool = True, durable: bool = True) -> str:
-    """schedule_cron 工具包装:注册任务并返回人类可读结果。"""
+    """schedule_cron tool wrapper: register a job and return a readable result."""
     result = schedule_job(cron, prompt, recurring, durable)
     if isinstance(result, str):
         return f"Error: {result}"
@@ -204,7 +205,7 @@ def run_schedule_cron(cron: str, prompt: str,
 
 
 def run_list_crons() -> str:
-    """list_crons 工具包装:列出所有已注册的 cron 任务。"""
+    """list_crons tool wrapper: list all registered cron jobs."""
     with cron_lock:
         jobs = list(scheduled_jobs.values())
     if not jobs:
@@ -217,7 +218,7 @@ def run_list_crons() -> str:
 
 
 def run_cancel_cron(job_id: str) -> str:
-    """cancel_cron 工具包装。"""
+    """cancel_cron tool wrapper."""
     return cancel_job(job_id)
 
 

@@ -1,11 +1,13 @@
-"""自主 teammate:后台线程里运行的独立 mini agent 循环 + 协议工具。
+"""Autonomous teammates: independent mini agent loops on background threads + protocol tools.
 
-teammate 醒来时先处理收件箱消息(协议优先),再找无主任务认领。它自带一个
-受限的工具子集与自己的 while 循环,**不调用主 ``agent_loop``** —— 这正是
-teams 与 loop 之间没有循环依赖的原因,也是整个包能干净分层的前提。
+A teammate wakes up for inbox messages first (protocol has priority), then
+looks for unclaimed tasks. It has a restricted tool subset and its own while
+loop — it **never calls the main ``agent_loop``** — which is exactly why
+there is no circular dependency between teams and loop, and why the package
+layers cleanly.
 
-plan 审批是真正的门闩:submit_plan 之后,teammate 停止一切模型/工具步骤,
-直到 lead 发来 plan_approval_response。
+Plan approval is a real gate: after submit_plan, the teammate stops taking
+model/tool steps until lead sends plan_approval_response.
 """
 
 import json
@@ -25,7 +27,7 @@ IDLE_TIMEOUT = 60
 
 
 def scan_unclaimed_tasks() -> list[dict]:
-    """返回当前可认领(pending、无主、依赖已满足)的任务原始 dict 列表。"""
+    """Return raw dicts of claimable tasks (pending, unowned, deps satisfied)."""
     unclaimed = []
     for f in sorted(config.TASKS_DIR.glob("task_*.json")):
         task = json.loads(f.read_text())
@@ -39,11 +41,13 @@ def scan_unclaimed_tasks() -> list[dict]:
 def idle_poll(agent_name: str, messages: list,
               name: str, role: str,
               worktree_context: dict | None = None) -> str:
-    """teammate 空闲轮询:优先响应收件箱,其次认领无主任务。
+    """Teammate idle polling: answer the inbox first, then claim unclaimed tasks.
 
-    返回 'shutdown' / 'work' / 'timeout' 之一。副作用:可能给 messages 追加内容、
-    认领任务、发送 shutdown 回复。
+    Returns 'shutdown' / 'work' / 'timeout'. Side effects: may append to
+    messages, claim a task, or send a shutdown reply.
     """
+    # Autonomous teammates wake up for inbox messages first, then look for
+    # unclaimed tasks. This keeps direct protocol messages higher priority.
     for _ in range(IDLE_TIMEOUT // IDLE_POLL_INTERVAL):
         time.sleep(IDLE_POLL_INTERVAL)
         inbox = bus.BUS.read_inbox(agent_name)
@@ -77,16 +81,17 @@ def idle_poll(agent_name: str, messages: list,
 
 
 def spawn_teammate_thread(name: str, role: str, prompt: str) -> str:
-    """在后台线程启动一个自主 teammate;返回是否成功的说明字符串。
+    """Start an autonomous teammate on a background thread; return a status string.
 
-    副作用:登记 ``bus.active_teammates``、起 daemon 线程。teammate 在其中运行
-    自带的 mini agent 循环,通过 BUS 与 lead 协作。
+    Side effects: registers in ``bus.active_teammates`` and starts a daemon
+    thread running the teammate's self-contained mini agent loop, which
+    cooperates with lead via the BUS.
     """
     if name in bus.active_teammates:
         return f"Teammate '{name}' already exists"
 
-    # plan 审批是真门闩:submit_plan 之后,teammate 停止模型/工具步骤,直到
-    # lead 发来 plan_approval_response。
+    # Plan approval is a real gate: after submit_plan, the teammate stops
+    # taking model/tool steps until lead sends plan_approval_response.
     protocol_ctx = {"waiting_plan": None}
     system = (f"You are '{name}', a {role}. "
               f"Use tools to complete tasks. "
@@ -114,8 +119,8 @@ def spawn_teammate_thread(name: str, role: str, prompt: str) -> str:
         wt_ctx = {"path": None}
 
         def _wt_cwd():
-            # 一旦认领了带 worktree 的任务,teammate 的文件工具都透明地在那个
-            # 隔离目录里执行。
+            # Once a task with a worktree is claimed, all teammate file tools
+            # transparently run inside that isolated directory.
             p = wt_ctx["path"]
             return Path(p) if p else None
 
@@ -220,7 +225,8 @@ def spawn_teammate_thread(name: str, role: str, prompt: str) -> str:
                 if should_shutdown:
                     break
                 if protocol_ctx["waiting_plan"]:
-                    # 审批门闩关闭期间只轮询协议回复,不让模型继续任务。
+                    # Poll only for protocol replies while the approval gate is
+                    # closed; do not let the model continue with the task.
                     time.sleep(IDLE_POLL_INTERVAL)
                     continue
                 if inbox and not should_shutdown:
@@ -255,8 +261,8 @@ def spawn_teammate_thread(name: str, role: str, prompt: str) -> str:
                                         "tool_use_id": block.id,
                                         "content": str(output)})
                         if protocol_ctx["waiting_plan"]:
-                            # 忽略同一条模型响应里后续的 tool_use 块;它们属于
-                            # 审批之后,而不是之前。
+                            # Ignore later tool_use blocks from the same model
+                            # response; they belong after approval, not before.
                             break
                 messages.append({"role": "user", "content": results})
                 if protocol_ctx["waiting_plan"]:
@@ -288,7 +294,7 @@ def spawn_teammate_thread(name: str, role: str, prompt: str) -> str:
 
 
 def _teammate_submit_plan(from_name: str, plan: str) -> str:
-    """teammate 提交 plan:登记 pending 请求并向 lead 发审批请求。"""
+    """Teammate side of submit_plan: register a pending request and notify lead."""
     req_id = bus.new_request_id()
     bus.pending_requests[req_id] = bus.ProtocolState(
         request_id=req_id, type="plan_approval",
@@ -301,7 +307,7 @@ def _teammate_submit_plan(from_name: str, plan: str) -> str:
 
 
 def run_request_shutdown(teammate: str) -> str:
-    """lead 工具:向某 teammate 发起 shutdown 请求。"""
+    """Lead tool: send a shutdown request to a teammate."""
     req_id = bus.new_request_id()
     bus.pending_requests[req_id] = bus.ProtocolState(
         request_id=req_id, type="shutdown",
@@ -313,14 +319,14 @@ def run_request_shutdown(teammate: str) -> str:
 
 
 def run_request_plan(teammate: str, task: str) -> str:
-    """lead 工具:要求某 teammate 就某任务提交 plan。"""
+    """Lead tool: ask a teammate to submit a plan for a task."""
     bus.BUS.send("lead", teammate, f"Submit plan for: {task}", "message")
     return f"Asked {teammate} to submit a plan"
 
 
 def run_review_plan(request_id: str, approve: bool,
                     feedback: str = "") -> str:
-    """lead 工具:批准或拒绝一条已提交的 plan,并回发响应。"""
+    """Lead tool: approve or reject a submitted plan and send the response."""
     state = bus.pending_requests.get(request_id)
     if not state:
         return f"Request {request_id} not found"

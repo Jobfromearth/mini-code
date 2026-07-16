@@ -9,6 +9,7 @@ effect: registers the default hooks on import.
 
 from . import config
 from .tools import safe_path
+from .tracing import clip, trace, usage_summary
 
 # Event name → list of callbacks.
 HOOKS = {"UserPromptSubmit": [], "PreToolUse": [],
@@ -66,6 +67,14 @@ def permission_hook(block):
     return None
 
 
+def traced_permission_hook(block):
+    """permission_hook plus a trace record for every denial (audit trail)."""
+    result = permission_hook(block)
+    if result is not None:
+        trace("permission_denied", tool=block.name, reason=clip(result))
+    return result
+
+
 def log_hook(block):
     """PreToolUse logging hook: print the tool about to run."""
     print(f"\033[90m[HOOK] {block.name}\033[0m")
@@ -81,13 +90,14 @@ def large_output_hook(block, output):
 
 
 def user_prompt_hook(query: str):
-    """UserPromptSubmit hook: print the current working directory."""
+    """UserPromptSubmit hook: trace the prompt and print the working directory."""
+    trace("user_prompt", prompt=clip(query))
     print(f"\033[90m[HOOK] UserPromptSubmit: {config.WORKDIR}\033[0m")
     return None
 
 
 def stop_hook(messages: list):
-    """Stop hook: count and print tool_results produced this turn."""
+    """Stop hook: count tool_results this turn, trace it, print session usage."""
     tool_count = 0
     for msg in messages:
         content = msg.get("content")
@@ -95,12 +105,14 @@ def stop_hook(messages: list):
             tool_count += sum(1 for item in content
                               if isinstance(item, dict)
                               and item.get("type") == "tool_result")
-    print(f"\033[90m[HOOK] Stop: {tool_count} tool result(s)\033[0m")
+    trace("turn_end", tool_results=tool_count)
+    print(f"\033[90m[HOOK] Stop: {tool_count} tool result(s) | "
+          f"{usage_summary()}\033[0m")
     return None
 
 
 register_hook("UserPromptSubmit", user_prompt_hook)
-register_hook("PreToolUse", permission_hook)
+register_hook("PreToolUse", traced_permission_hook)
 register_hook("PreToolUse", log_hook)
 register_hook("PostToolUse", large_output_hook)
 register_hook("Stop", stop_hook)

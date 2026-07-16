@@ -37,6 +37,7 @@
 | 👥 团队协作 | `teams.py` `bus.py` | 自主线程、JSONL 邮箱、plan 审批协议 |
 | 🌲 Git worktree | `worktrees.py` | 与任务绑定的隔离工作目录 |
 | 🔌 MCP | `mcp.py` | 晚绑定的外部工具,并入统一工具池 |
+| 📊 行为追踪 | `tracing.py` | JSONL 事件日志:token 用量、工具耗时、权限拦截 |
 
 ## 🚀 快速开始
 

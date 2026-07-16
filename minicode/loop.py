@@ -10,6 +10,7 @@ against the cron autorun thread.
 """
 
 import threading
+import time
 
 from . import bus
 from . import config
@@ -26,6 +27,7 @@ from .cron import consume_cron_queue
 from .skills import assemble_system_prompt
 from .terminal import terminal_print
 from .tools import call_tool_handler
+from .tracing import clip, trace, trace_llm_call
 
 
 def update_context(context: dict, messages: list) -> dict:
@@ -100,6 +102,7 @@ def agent_loop(messages: list, context: dict):
         for job in fired:
             messages.append({"role": "user",
                              "content": f"[Scheduled] {job.prompt}"})
+            trace("cron_inject", prompt=clip(job.prompt))
             print(f"  \033[35m[cron inject] {job.prompt[:60]}\033[0m")
 
         inject_background_notifications(messages)
@@ -116,13 +119,16 @@ def agent_loop(messages: list, context: dict):
         try:
             response = call_llm(messages, context, tools, state, max_tokens)
         except Exception as e:
+            trace("llm_error", error=type(e).__name__, message=clip(e))
             if is_prompt_too_long_error(e) and not state.has_attempted_reactive_compact:
                 messages[:] = reactive_compact(messages)
                 state.has_attempted_reactive_compact = True
+                trace("compact", trigger="reactive")
                 continue
             messages.append({"role": "assistant", "content": [
                 {"type": "text", "text": f"[Error] {type(e).__name__}: {e}"}]})
             return
+        trace_llm_call(response, state.current_model)
 
         if response.stop_reason == "max_tokens":
             if not state.has_escalated:
@@ -152,14 +158,17 @@ def agent_loop(messages: list, context: dict):
             print(f"\033[36m> {block.name}\033[0m")
 
             if block.name == "compact":
+                trace("compact", trigger="tool")
                 messages[:] = compact_history(messages)
                 messages.append({"role": "user",
                                  "content": "[Compacted. Continue with summarized context.]"})
                 compacted_now = True
                 break
 
+            trace("tool_start", tool=block.name, input=clip(block.input))
             blocked = trigger_hooks("PreToolUse", block)
             if blocked:
+                trace("tool_blocked", tool=block.name, reason=clip(blocked))
                 results.append({"type": "tool_result",
                                 "tool_use_id": block.id,
                                 "content": str(blocked)})
@@ -167,6 +176,7 @@ def agent_loop(messages: list, context: dict):
 
             if should_run_background(block.name, block.input):
                 bg_id = start_background_task(block, handlers)
+                trace("background_start", tool=block.name, task_id=bg_id)
                 output = (f"[Background task {bg_id} started] "
                           "Result will arrive as a task_notification.")
                 results.append({"type": "tool_result",
@@ -175,7 +185,11 @@ def agent_loop(messages: list, context: dict):
                 continue
 
             handler = handlers.get(block.name)
+            started = time.perf_counter()
             output = call_tool_handler(handler, block.input, block.name)
+            trace("tool_end", tool=block.name,
+                  duration_ms=round((time.perf_counter() - started) * 1000, 1),
+                  output_len=len(str(output)))
             trigger_hooks("PostToolUse", block, output)
             print(str(output)[:300])
 

@@ -10,6 +10,7 @@ import random
 import time
 
 from . import config
+from .tracing import trace
 
 
 class RecoveryState:
@@ -50,6 +51,7 @@ def with_retry(fn, state: RecoveryState):
                 if state.consecutive_529 >= config.MAX_CONSECUTIVE_529 and config.FALLBACK_MODEL:
                     state.current_model = config.FALLBACK_MODEL
                     state.consecutive_529 = 0
+                    trace("model_fallback", to=config.FALLBACK_MODEL)
                     print(f"  \033[31m[529] switching to {config.FALLBACK_MODEL}\033[0m")
                 delay = retry_delay(attempt)
                 print(f"  \033[33m[529] retry {attempt + 1}/{config.MAX_RETRIES} "

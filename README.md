@@ -37,6 +37,7 @@ It demonstrates, in readable Python, the core mechanisms behind real coding agen
 | 👥 Teammates | `teams.py` `bus.py` | Autonomous threads, JSONL mailboxes, plan-approval protocol |
 | 🌲 Git worktrees | `worktrees.py` | Isolated work directories bound to tasks |
 | 🔌 MCP | `mcp.py` | Late-bound external tools merged into the tool pool |
+| 📊 Tracing | `tracing.py` | JSONL event log: token usage, tool durations, permission denials |
 
 ## 🚀 Quick start
 

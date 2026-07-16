@@ -38,6 +38,7 @@ MAILBOX_DIR = WORKDIR / ".mailboxes"
 DURABLE_PATH = WORKDIR / ".scheduled_tasks.json"
 MEMORY_DIR = WORKDIR / ".memory"
 MEMORY_INDEX = MEMORY_DIR / "MEMORY.md"
+TRACE_FILE = WORKDIR / ".traces" / "trace.jsonl"
 
 # ── Tuning constants ──
 DEFAULT_MAX_TOKENS = 8000

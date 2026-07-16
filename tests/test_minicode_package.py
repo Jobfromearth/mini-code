@@ -51,6 +51,7 @@ MODULES = [
     "minicode.subagent", "minicode.compaction", "minicode.recovery",
     "minicode.background", "minicode.cron", "minicode.mcp",
     "minicode.registry", "minicode.loop", "minicode.__main__",
+    "minicode.tracing",
 ]
 
 
@@ -205,6 +206,64 @@ class BackgroundTests(unittest.TestCase):
             "bash", {"command": "echo hi", "run_in_background": True}))
         self.assertFalse(should_run_background("bash", {"command": "echo hi"}))
         self.assertFalse(should_run_background("read_file", {"path": "a"}))
+
+
+class TracingTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from minicode import config, tracing
+        self.tracing = tracing
+        self._orig_trace_file = config.TRACE_FILE
+        self._tmp = tempfile.TemporaryDirectory()
+        config.TRACE_FILE = Path(self._tmp.name) / "trace.jsonl"
+        self.config = config
+
+    def tearDown(self):
+        self.config.TRACE_FILE = self._orig_trace_file
+        self._tmp.cleanup()
+
+    def test_trace_appends_jsonl_records(self):
+        import json
+        self.tracing.trace("tool_start", tool="bash", input="ls")
+        self.tracing.trace("tool_end", tool="bash", duration_ms=12.5)
+        lines = self.config.TRACE_FILE.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 2)
+        first = json.loads(lines[0])
+        self.assertEqual(first["event"], "tool_start")
+        self.assertEqual(first["tool"], "bash")
+        self.assertEqual(first["session"], self.tracing.SESSION_ID)
+        self.assertIn("ts", first)
+
+    def test_trace_llm_call_accumulates_totals(self):
+        before = dict(self.tracing.TOTALS)
+        response = types.SimpleNamespace(
+            stop_reason="end_turn",
+            usage=types.SimpleNamespace(input_tokens=100, output_tokens=40))
+        self.tracing.trace_llm_call(response, "test-model")
+        self.assertEqual(self.tracing.TOTALS["llm_calls"], before["llm_calls"] + 1)
+        self.assertEqual(self.tracing.TOTALS["input_tokens"],
+                         before["input_tokens"] + 100)
+        self.assertEqual(self.tracing.TOTALS["output_tokens"],
+                         before["output_tokens"] + 40)
+        self.assertIn("tokens", self.tracing.usage_summary())
+
+    def test_clip_truncates_long_values(self):
+        clipped = self.tracing.clip("x" * 600, limit=500)
+        self.assertLess(len(clipped), 600)
+        self.assertIn("[+100]", clipped)
+        self.assertEqual(self.tracing.clip("short"), "short")
+
+    def test_summarize_trace_file_aggregates(self):
+        response = types.SimpleNamespace(
+            stop_reason="tool_use",
+            usage=types.SimpleNamespace(input_tokens=10, output_tokens=5))
+        self.tracing.trace_llm_call(response, "test-model")
+        self.tracing.trace("tool_end", tool="bash", duration_ms=20.0)
+        self.tracing.trace("tool_blocked", tool="bash", reason="denied")
+        summary = self.tracing.summarize_trace_file()
+        self.assertIn(self.tracing.SESSION_ID, summary)
+        self.assertIn("bash: 1 call(s)", summary)
+        self.assertIn("1 blocked", summary)
 
 
 class CronValidationTests(unittest.TestCase):

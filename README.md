@@ -53,7 +53,7 @@ cp .env.example .env
 # 3. Run
 minicode            # console script
 python -m minicode  # or as a module
-python code.py      # legacy entry point (back-compat shim)
+python legacy_entry.py  # legacy entry point (back-compat shim)
 ```
 
 Type a question at the `minicode >>` prompt; type `q` to quit.
@@ -108,7 +108,10 @@ Langfuse is entirely optional and additive: unset or unreachable, tracing silent
 
 ```
 minicode/            the package (see table above)
-code.py              back-compat shim: `python code.py` still works
+legacy_entry.py      back-compat shim: `python legacy_entry.py` still works
+                     (named to avoid shadowing the stdlib `code` module --
+                     that used to be its name, and quietly broke pytest/CI
+                     in a clean checkout with no .env; see git history)
 skills/              skill catalog (SKILL.md with YAML frontmatter)
 deploy/langfuse/     self-hosted Langfuse docker-compose stack
 docs/adr/            architecture decision records

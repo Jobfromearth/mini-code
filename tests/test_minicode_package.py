@@ -6,7 +6,7 @@ Coverage:
 - has_tool_use correctly detects tool_use blocks;
 - snip_compact / reactive_compact keep tool_use/tool_result pairs intact;
 - background-task classification;
-- the top-level code.py shim still exposes the common symbols.
+- the top-level legacy_entry.py shim still exposes the common symbols.
 
 Run: ``python -m pytest tests/test_minicode_package.py -v``
 Needs MODEL_ID (set automatically) and faked anthropic/dotenv modules.
@@ -99,10 +99,10 @@ class ImportIntegrityTests(unittest.TestCase):
                 self.assertIsNotNone(importlib.import_module(name))
 
     def test_shim_reexports(self):
-        import code
-        self.assertTrue(callable(code.main))
-        self.assertTrue(callable(code.run_todo_write))
-        self.assertTrue(callable(code.has_tool_use))
+        import legacy_entry
+        self.assertTrue(callable(legacy_entry.main))
+        self.assertTrue(callable(legacy_entry.run_todo_write))
+        self.assertTrue(callable(legacy_entry.has_tool_use))
 
 
 class TodoWriteTests(unittest.TestCase):

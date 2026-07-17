@@ -53,7 +53,7 @@ cp .env.example .env
 # 3. 运行
 minicode            # console script
 python -m minicode  # 或作为模块运行
-python code.py      # 旧入口(向后兼容薄壳)
+python legacy_entry.py  # 旧入口(向后兼容薄壳)
 ```
 
 在 `minicode >>` 提示符下输入问题;输入 `q` 退出。
@@ -108,7 +108,10 @@ Langfuse 完全是可选、纯增量的:不配置或连不上时,追踪会静默
 
 ```
 minicode/            包本体(见上表)
-code.py              向后兼容薄壳:`python code.py` 仍可用
+legacy_entry.py      向后兼容薄壳:`python legacy_entry.py` 仍可用
+                     (改这个名字是为了不和标准库的 `code` 模块撞名——它以前
+                     就叫 code.py,在没有 .env 的干净环境里会悄悄弄崩
+                     pytest/CI,详见 git 历史)
 skills/              skill 目录(带 YAML frontmatter 的 SKILL.md)
 deploy/langfuse/     自托管 Langfuse 的 docker-compose 栈
 docs/adr/            架构决策记录

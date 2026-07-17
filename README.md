@@ -8,7 +8,8 @@ Tasks · Worktrees · Skills · Teams · Hooks · Compaction · Cron · MCP — 
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Version](https://img.shields.io/badge/version-1.0.0-green.svg)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/tests-27%20passed-brightgreen.svg)](tests/)
+[![Tests](https://github.com/Jobfromearth/mini-code/actions/workflows/tests.yml/badge.svg)](https://github.com/Jobfromearth/mini-code/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 **English** | [中文](README-zh.md)
 
@@ -122,10 +123,11 @@ Runtime state lives in dot-directories created on demand: `.tasks/`, `.worktrees
 ## 🧪 Testing
 
 ```bash
+pip install -e ".[test]"
 python -m pytest tests/ -v
 ```
 
-The suite covers import integrity (no circular imports), todo validation and injection safety, compaction keeping `tool_use`/`tool_result` pairs intact, background-task detection, cron validation, and Langfuse dual-write behavior — including that tracing never raises even when Langfuse is unreachable or misconfigured.
+Runs on every push/PR via [GitHub Actions](.github/workflows/tests.yml) (Python 3.10 and 3.12). The suite covers import integrity (no circular imports), todo validation and injection safety, compaction keeping `tool_use`/`tool_result` pairs intact, background-task detection, cron validation, and Langfuse dual-write behavior — including that tracing never raises even when Langfuse is unreachable or misconfigured.
 
 ## 📄 License
 

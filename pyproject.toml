@@ -16,6 +16,9 @@ dependencies = [
     "langfuse>=3.0.0",
 ]
 
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
 [project.scripts]
 minicode = "minicode.__main__:main"
 

@@ -8,7 +8,8 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Version](https://img.shields.io/badge/version-1.0.0-green.svg)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/tests-27%20passed-brightgreen.svg)](tests/)
+[![Tests](https://github.com/Jobfromearth/mini-code/actions/workflows/tests.yml/badge.svg)](https://github.com/Jobfromearth/mini-code/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
 [English](README.md) | **中文**
 
@@ -122,10 +123,11 @@ pyproject.toml       打包配置 + `minicode` console script
 ## 🧪 测试
 
 ```bash
+pip install -e ".[test]"
 python -m pytest tests/ -v
 ```
 
-测试覆盖:导入完整性(无循环导入)、todo 校验与注入安全、压缩时保持 `tool_use`/`tool_result` 成对、后台任务判定、cron 表达式校验,以及 Langfuse 双写行为——包括 Langfuse 连不上或没配置时,追踪逻辑绝不会抛异常。
+每次 push/PR 都会通过 [GitHub Actions](.github/workflows/tests.yml) 自动跑一遍(Python 3.10 和 3.12)。测试覆盖:导入完整性(无循环导入)、todo 校验与注入安全、压缩时保持 `tool_use`/`tool_result` 成对、后台任务判定、cron 表达式校验,以及 Langfuse 双写行为——包括 Langfuse 连不上或没配置时,追踪逻辑绝不会抛异常。
 
 ## 📄 许可
 

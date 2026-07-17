@@ -8,7 +8,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Version](https://img.shields.io/badge/version-1.0.0-green.svg)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/tests-13%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-27%20passed-brightgreen.svg)](tests/)
 
 [English](README.md) | **中文**
 
@@ -37,7 +37,7 @@
 | 👥 团队协作 | `teams.py` `bus.py` | 自主线程、JSONL 邮箱、plan 审批协议 |
 | 🌲 Git worktree | `worktrees.py` | 与任务绑定的隔离工作目录 |
 | 🔌 MCP | `mcp.py` | 晚绑定的外部工具,并入统一工具池 |
-| 📊 行为追踪 | `tracing.py` | JSONL 事件日志:token 用量、工具耗时、权限拦截 |
+| 📊 行为追踪 | `tracing.py` | JSONL 事件日志,双写进自托管的 [Langfuse](https://langfuse.com) 可视化界面:token 用量、工具耗时、权限拦截 |
 
 ## 🚀 快速开始
 
@@ -85,17 +85,39 @@ python code.py      # 旧入口(向后兼容薄壳)
 └────────────────────────────────────────────────┘
 ```
 
+## 📊 可观测性
+
+每个事件(大模型调用、工具开始/结束、权限拒绝、压缩、cron 注入)都会追加写入本地 JSONL trace 文件;配置好后,还会双写进一个自托管的 [Langfuse](https://langfuse.com) 实例——一个对话 **Turn** 对应一条 Langfuse trace,工具调用和大模型生成都嵌套在下面,展示的是模型真实的输出内容,而不只是计数类的记账信息。
+
+```bash
+# 拉起自托管 Langfuse(Postgres + ClickHouse + Redis + MinIO)
+cd deploy/langfuse
+cp .env.example .env
+docker compose up -d          # 等待约 2-3 分钟后访问 http://localhost:3000
+
+# 让 minicode 连上它(写进仓库根目录的 .env)
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_HOST=http://localhost:3000
+```
+
+Langfuse 完全是可选、纯增量的:不配置或连不上时,追踪会静默降级为只写 JSONL——完整的设计取舍见 [ADR-0001](docs/adr/0001-self-hosted-langfuse-tracing.md)(为什么自托管、为什么按 turn 粒度、为什么双写)。
+
 ## 📂 项目结构
 
 ```
 minicode/            包本体(见上表)
 code.py              向后兼容薄壳:`python code.py` 仍可用
 skills/              skill 目录(带 YAML frontmatter 的 SKILL.md)
+deploy/langfuse/     自托管 Langfuse 的 docker-compose 栈
+docs/adr/            架构决策记录
+docs/agents/         工程类 skills 用到的 issue tracker / 分类标签约定
+CONTEXT.md           领域术语表(Session 与 Turn 的区分等)
 tests/               pytest 测试套件
 pyproject.toml       打包配置 + `minicode` console script
 ```
 
-运行时状态存放在按需创建的点目录中:`.tasks/`、`.worktrees/`、`.mailboxes/`、`.transcripts/`、`.memory/`、`.scheduled_tasks.json`。
+运行时状态存放在按需创建的点目录中:`.tasks/`、`.worktrees/`、`.mailboxes/`、`.transcripts/`、`.memory/`、`.scheduled_tasks.json`、`.traces/`。
 
 ## 🧪 测试
 
@@ -103,7 +125,7 @@ pyproject.toml       打包配置 + `minicode` console script
 python -m pytest tests/ -v
 ```
 
-测试覆盖:导入完整性(无循环导入)、todo 校验与注入安全、压缩时保持 `tool_use`/`tool_result` 成对、后台任务判定、cron 表达式校验。
+测试覆盖:导入完整性(无循环导入)、todo 校验与注入安全、压缩时保持 `tool_use`/`tool_result` 成对、后台任务判定、cron 表达式校验,以及 Langfuse 双写行为——包括 Langfuse 连不上或没配置时,追踪逻辑绝不会抛异常。
 
 ## 📄 许可
 

@@ -123,7 +123,7 @@ def validate_cron(cron_expr: str) -> str | None:
 def save_durable_jobs():
     """Persist jobs marked durable to disk (writes a file)."""
     durable = [asdict(job) for job in scheduled_jobs.values() if job.durable]
-    config.DURABLE_PATH.write_text(json.dumps(durable, indent=2))
+    config.DURABLE_PATH.write_text(json.dumps(durable, indent=2), encoding="utf-8")
 
 
 def load_durable_jobs():
@@ -131,7 +131,7 @@ def load_durable_jobs():
     if not config.DURABLE_PATH.exists():
         return
     try:
-        for item in json.loads(config.DURABLE_PATH.read_text()):
+        for item in json.loads(config.DURABLE_PATH.read_text(encoding="utf-8")):
             job = CronJob(**item)
             if not validate_cron(job.cron):
                 scheduled_jobs[job.id] = job

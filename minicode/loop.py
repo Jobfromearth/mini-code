@@ -34,7 +34,7 @@ def update_context(context: dict, messages: list) -> dict:
     """Refresh context from disk memory and runtime state (memory, MCP, teammates)."""
     memories = ""
     if config.MEMORY_INDEX.exists():
-        memories = config.MEMORY_INDEX.read_text()[:2000]
+        memories = config.MEMORY_INDEX.read_text(encoding="utf-8")[:2000]
     return {
         "memories": memories,
         "connected_mcp": list(mcp.mcp_clients.keys()),

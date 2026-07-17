@@ -35,11 +35,14 @@ def run_git(args: list[str]) -> tuple[bool, str]:
     """Run a git command in WORKDIR; return (success, truncated output)."""
     try:
         r = subprocess.run(["git"] + args, cwd=config.WORKDIR,
-                           capture_output=True, text=True, timeout=30)
+                           capture_output=True, text=True, timeout=30,
+                           encoding="utf-8", errors="replace")
         out = (r.stdout + r.stderr).strip()
         return r.returncode == 0, out[:5000] if out else "(no output)"
     except subprocess.TimeoutExpired:
         return False, "Error: git timeout"
+    except Exception as e:
+        return False, f"Error: {e}"
 
 
 def log_event(event_type: str, worktree_name: str, task_id: str = ""):
@@ -47,7 +50,7 @@ def log_event(event_type: str, worktree_name: str, task_id: str = ""):
     event = {"type": event_type, "worktree": worktree_name,
              "task_id": task_id, "ts": time.time()}
     events_file = config.WORKTREES_DIR / "events.jsonl"
-    with open(events_file, "a") as f:
+    with open(events_file, "a", encoding="utf-8") as f:
         f.write(json.dumps(event) + "\n")
 
 
@@ -87,10 +90,12 @@ def _count_worktree_changes(path: Path) -> tuple[int, int]:
     """Return (uncommitted file count, unpushed commit count); (-1, -1) if unknown."""
     try:
         r1 = subprocess.run(["git", "status", "--porcelain"],
-                            cwd=path, capture_output=True, text=True, timeout=10)
+                            cwd=path, capture_output=True, text=True, timeout=10,
+                            encoding="utf-8", errors="replace")
         files = len([l for l in r1.stdout.strip().splitlines() if l.strip()])
         r2 = subprocess.run(["git", "log", "@{push}..HEAD", "--oneline"],
-                            cwd=path, capture_output=True, text=True, timeout=10)
+                            cwd=path, capture_output=True, text=True, timeout=10,
+                            encoding="utf-8", errors="replace")
         commits = len([l for l in r2.stdout.strip().splitlines() if l.strip()])
         return files, commits
     except Exception:

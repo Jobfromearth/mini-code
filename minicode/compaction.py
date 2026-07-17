@@ -27,7 +27,7 @@ def persist_large_output(tool_use_id: str, output: str) -> str:
     config.TOOL_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     path = config.TOOL_RESULTS_DIR / f"{tool_use_id}.txt"
     if not path.exists():
-        path.write_text(output)
+        path.write_text(output, encoding="utf-8", errors="replace")
     return (f"<persisted-output>\nFull output: {path}\n"
             f"Preview:\n{output[:2000]}\n</persisted-output>")
 
@@ -92,7 +92,7 @@ def write_transcript(messages: list) -> Path:
     """Write the full message list as a JSONL transcript; return its path."""
     config.TRANSCRIPT_DIR.mkdir(parents=True, exist_ok=True)
     path = config.TRANSCRIPT_DIR / f"transcript_{int(time.time())}.jsonl"
-    with path.open("w") as f:
+    with path.open("w", encoding="utf-8") as f:
         for msg in messages:
             f.write(json.dumps(msg, default=str) + "\n")
     return path

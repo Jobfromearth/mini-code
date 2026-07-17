@@ -48,17 +48,18 @@ def create_task(subject: str, description: str = "",
 
 def save_task(task: Task):
     """Write the task to its JSON file (side effect: disk write)."""
-    _task_path(task.id).write_text(json.dumps(asdict(task), indent=2))
+    _task_path(task.id).write_text(json.dumps(asdict(task), indent=2),
+                                    encoding="utf-8")
 
 
 def load_task(task_id: str) -> Task:
     """Load a task from disk; raises FileNotFoundError if missing."""
-    return Task(**json.loads(_task_path(task_id).read_text()))
+    return Task(**json.loads(_task_path(task_id).read_text(encoding="utf-8")))
 
 
 def list_tasks() -> list[Task]:
     """Return all tasks sorted by id."""
-    return [Task(**json.loads(p.read_text()))
+    return [Task(**json.loads(p.read_text(encoding="utf-8")))
             for p in sorted(config.TASKS_DIR.glob("task_*.json"))]
 
 

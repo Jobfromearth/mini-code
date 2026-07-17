@@ -30,7 +30,7 @@ def scan_unclaimed_tasks() -> list[dict]:
     """Return raw dicts of claimable tasks (pending, unowned, deps satisfied)."""
     unclaimed = []
     for f in sorted(config.TASKS_DIR.glob("task_*.json")):
-        task = json.loads(f.read_text())
+        task = json.loads(f.read_text(encoding="utf-8"))
         if (task.get("status") == "pending"
                 and not task.get("owner")
                 and can_start(task["id"])):

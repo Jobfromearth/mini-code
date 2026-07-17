@@ -31,7 +31,7 @@ class MessageBus:
                "content": content, "type": msg_type,
                "ts": time.time(), "metadata": metadata or {}}
         inbox = config.MAILBOX_DIR / f"{to_agent}.jsonl"
-        with open(inbox, "a") as f:
+        with open(inbox, "a", encoding="utf-8") as f:
             f.write(json.dumps(msg) + "\n")
         terminal_print(f"  \033[33m[bus] {from_agent} → {to_agent}: "
                        f"({msg_type}) {content[:50]}\033[0m")
@@ -41,8 +41,8 @@ class MessageBus:
         inbox = config.MAILBOX_DIR / f"{agent}.jsonl"
         if not inbox.exists():
             return []
-        msgs = [json.loads(line) for line in inbox.read_text().splitlines()
-                if line.strip()]
+        msgs = [json.loads(line) for line in
+                inbox.read_text(encoding="utf-8").splitlines() if line.strip()]
         inbox.unlink()
         return msgs
 

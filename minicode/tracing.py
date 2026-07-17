@@ -5,10 +5,18 @@ duration, permission denials, compactions, cron injections) is appended as
 one JSON line to ``config.TRACE_FILE``. Cumulative token totals for the
 current session live in ``TOTALS``.
 
+Every event is also dual-written to Langfuse (self-hosted; see
+``docs/adr/0001-self-hosted-langfuse-tracing.md``) when ``LANGFUSE_PUBLIC_KEY``/
+``LANGFUSE_SECRET_KEY`` are configured. One Langfuse trace maps to one Turn
+(``user_prompt`` -> ``turn_end``), not one process-level Session. Langfuse is
+strictly additive: any failure to reach it is swallowed, same "never break
+the agent loop" guarantee the JSONL writer already has.
+
 Run ``python -m minicode.tracing`` to print a summary of the trace file.
 """
 
 import json
+import os
 import time
 import uuid
 
@@ -20,11 +28,88 @@ SESSION_ID = uuid.uuid4().hex[:8]
 # Cumulative token usage for this session (mutated by trace_llm_call).
 TOTALS = {"llm_calls": 0, "input_tokens": 0, "output_tokens": 0}
 
+# Langfuse client: lazily constructed once, cached (or cached as None on
+# failure/absence so we don't retry every trace() call). _propagate_attributes
+# is cached alongside it -- it's a module-level function in the langfuse
+# package, not a Langfuse() instance method.
+_langfuse_client = None
+_langfuse_init_attempted = False
+_propagate_attributes = None
+
+# Current open observations, keyed by the Turn/tool-call they belong to.
+# Tool calls are sequential within a turn (see loop.py's tool dispatch loop),
+# so a single slot for each is enough -- no stack needed.
+_current_turn = None
+_current_tool_span = None
+
 
 def clip(value, limit: int = 500) -> str:
     """Stringify a value and truncate it so traces stay small."""
     text = str(value)
     return text if len(text) <= limit else text[:limit] + f"...[+{len(text) - limit}]"
+
+
+def _get_langfuse_client():
+    """Lazily construct the Langfuse client; None if unconfigured or unavailable."""
+    global _langfuse_client, _langfuse_init_attempted, _propagate_attributes
+    if _langfuse_init_attempted:
+        return _langfuse_client
+    _langfuse_init_attempted = True
+    if not (os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")):
+        return None
+    try:
+        from langfuse import Langfuse, propagate_attributes
+        _langfuse_client = Langfuse()
+        _propagate_attributes = propagate_attributes
+    except Exception:
+        _langfuse_client = None  # tracing must never break the agent loop
+    return _langfuse_client
+
+
+def _emit_to_langfuse(event: str, fields: dict):
+    """Best-effort mirror of one trace event into Langfuse (never raises)."""
+    global _current_turn, _current_tool_span
+    client = _get_langfuse_client()
+    if client is None:
+        return
+    try:
+        if event == "user_prompt":
+            with _propagate_attributes(session_id=SESSION_ID):
+                _current_turn = client.start_observation(
+                    name="turn", input=fields.get("prompt"))
+            return
+
+        if event == "turn_end":
+            if _current_turn is not None:
+                _current_turn.update(output=fields)
+                _current_turn.end()
+                _current_turn = None
+            return
+
+        if _current_turn is None:
+            return  # nothing open to nest this event under; skip quietly
+
+        if event == "tool_start":
+            _current_tool_span = _current_turn.start_observation(
+                name=fields.get("tool", "tool"), as_type="span",
+                input=fields.get("input"))
+            return
+
+        if event in ("tool_end", "tool_blocked", "background_start"):
+            if _current_tool_span is not None:
+                _current_tool_span.update(output=fields)
+                _current_tool_span.end()
+                _current_tool_span = None
+            return
+
+        if event == "llm_call":
+            return  # trace_llm_call() already emits this as a generation
+
+        # Point-in-time events: permission_denied, cron_inject, compact,
+        # llm_error, model_fallback. as_type="event" auto-ends on creation.
+        _current_turn.start_observation(name=event, as_type="event", metadata=fields)
+    except Exception:
+        pass  # Langfuse must never break the agent loop
 
 
 def trace(event: str, **fields):
@@ -37,6 +122,7 @@ def trace(event: str, **fields):
             f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
     except OSError:
         pass  # tracing must never break the agent loop
+    _emit_to_langfuse(event, fields)
 
 
 def trace_llm_call(response, model: str):
@@ -47,11 +133,28 @@ def trace_llm_call(response, model: str):
     TOTALS["llm_calls"] += 1
     TOTALS["input_tokens"] += input_tokens
     TOTALS["output_tokens"] += output_tokens
+    stop_reason = getattr(response, "stop_reason", None)
     trace("llm_call", model=model,
-          stop_reason=getattr(response, "stop_reason", None),
+          stop_reason=stop_reason,
           input_tokens=input_tokens, output_tokens=output_tokens,
           total_input=TOTALS["input_tokens"],
           total_output=TOTALS["output_tokens"])
+    _emit_llm_call_to_langfuse(model, input_tokens, output_tokens, stop_reason)
+
+
+def _emit_llm_call_to_langfuse(model: str, input_tokens: int, output_tokens: int,
+                                stop_reason):
+    """Best-effort: record one LLM call as a Langfuse generation (never raises)."""
+    if _current_turn is None:
+        return
+    try:
+        generation = _current_turn.start_observation(
+            name="llm_call", as_type="generation", model=model,
+            usage_details={"input": input_tokens, "output": output_tokens})
+        generation.update(output={"stop_reason": stop_reason})
+        generation.end()
+    except Exception:
+        pass  # Langfuse must never break the agent loop
 
 
 def usage_summary() -> str:

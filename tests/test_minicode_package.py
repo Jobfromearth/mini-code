@@ -12,6 +12,7 @@ Run: ``python -m pytest tests/test_minicode_package.py -v``
 Needs MODEL_ID (set automatically) and faked anthropic/dotenv modules.
 """
 
+import contextlib
 import importlib
 import os
 import sys
@@ -264,6 +265,157 @@ class TracingTests(unittest.TestCase):
         self.assertIn(self.tracing.SESSION_ID, summary)
         self.assertIn("bash: 1 call(s)", summary)
         self.assertIn("1 blocked", summary)
+
+
+class _FakeLangfuseSpan:
+    """Stand-in for LangfuseSpan/LangfuseGeneration: records calls, mimics nesting."""
+
+    def __init__(self, name, as_type="span", **kwargs):
+        self.name = name
+        self.as_type = as_type
+        self.kwargs = kwargs
+        self.children = []
+        self.updates = []
+        self.end_calls = 0
+
+    def start_observation(self, *, name, as_type="span", **kwargs):
+        child = _FakeLangfuseSpan(name, as_type=as_type, **kwargs)
+        self.children.append(child)
+        return child
+
+    def update(self, **kwargs):
+        self.updates.append(kwargs)
+        return self
+
+    def end(self, **kwargs):
+        self.end_calls += 1
+        return self
+
+
+class _FakeLangfuseClient:
+    """Stand-in for the Langfuse() client: only the surface tracing.py calls."""
+
+    def __init__(self):
+        self.roots = []
+
+    def start_observation(self, *, name, as_type="span", **kwargs):
+        span = _FakeLangfuseSpan(name, as_type=as_type, **kwargs)
+        self.roots.append(span)
+        return span
+
+
+class _RaisingLangfuseClient:
+    """Stand-in that blows up on every call, to prove tracing() stays resilient."""
+
+    def start_observation(self, **kwargs):
+        raise RuntimeError("langfuse is down")
+
+
+def _fake_propagate_attributes(**kwargs):
+    """Stand-in for the real langfuse.propagate_attributes -- a module-level
+    function, NOT a Langfuse() instance method (see tracing._propagate_attributes)."""
+    return contextlib.nullcontext()
+
+
+class LangfuseTracingTests(unittest.TestCase):
+    """Seams: trace()/trace_llm_call() dual-write to Langfuse; see ADR-0001."""
+
+    def setUp(self):
+        import tempfile
+        from minicode import config, tracing
+        self.tracing = tracing
+        self._orig_trace_file = config.TRACE_FILE
+        self._tmp = tempfile.TemporaryDirectory()
+        config.TRACE_FILE = Path(self._tmp.name) / "trace.jsonl"
+        self.config = config
+        self._orig_client = tracing._langfuse_client
+        self._orig_attempted = tracing._langfuse_init_attempted
+        self._orig_propagate = tracing._propagate_attributes
+        self._orig_turn = tracing._current_turn
+        self._orig_tool_span = tracing._current_tool_span
+        tracing._langfuse_init_attempted = True  # skip real construction
+        tracing._propagate_attributes = _fake_propagate_attributes
+        tracing._current_turn = None
+        tracing._current_tool_span = None
+
+    def tearDown(self):
+        self.config.TRACE_FILE = self._orig_trace_file
+        self._tmp.cleanup()
+        self.tracing._langfuse_client = self._orig_client
+        self.tracing._langfuse_init_attempted = self._orig_attempted
+        self.tracing._propagate_attributes = self._orig_propagate
+        self.tracing._current_turn = self._orig_turn
+        self.tracing._current_tool_span = self._orig_tool_span
+
+    def test_disabled_when_not_configured_but_jsonl_still_written(self):
+        self.tracing._langfuse_client = None
+        self.tracing.trace("user_prompt", prompt="hi")
+        lines = self.config.TRACE_FILE.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 1)  # JSONL dual-write unaffected
+
+    def test_resilient_to_langfuse_exceptions(self):
+        self.tracing._langfuse_client = _RaisingLangfuseClient()
+        try:
+            self.tracing.trace("user_prompt", prompt="hi")
+        except Exception as e:  # pragma: no cover - the point of this test
+            self.fail(f"trace() must never raise, got {e!r}")
+
+    def test_turn_boundary_creates_and_ends_root_span(self):
+        fake = _FakeLangfuseClient()
+        self.tracing._langfuse_client = fake
+        self.tracing.trace("user_prompt", prompt="hi")
+        self.assertEqual(len(fake.roots), 1)
+        self.assertEqual(fake.roots[0].name, "turn")
+        self.assertEqual(fake.roots[0].end_calls, 0)
+        self.assertIs(self.tracing._current_turn, fake.roots[0])
+
+        self.tracing.trace("turn_end", tool_results=2)
+        self.assertEqual(fake.roots[0].end_calls, 1)
+        self.assertIsNone(self.tracing._current_turn)
+
+    def test_tool_call_nests_under_turn(self):
+        fake = _FakeLangfuseClient()
+        self.tracing._langfuse_client = fake
+        self.tracing.trace("user_prompt", prompt="hi")
+        turn_span = self.tracing._current_turn
+
+        self.tracing.trace("tool_start", tool="bash", input="ls")
+        self.assertEqual(len(turn_span.children), 1)
+        tool_span = turn_span.children[0]
+        self.assertEqual(tool_span.name, "bash")
+        self.assertEqual(tool_span.end_calls, 0)
+        self.assertIs(self.tracing._current_tool_span, tool_span)
+
+        self.tracing.trace("tool_end", tool="bash", duration_ms=5.0, output_len=2)
+        self.assertEqual(tool_span.end_calls, 1)
+        self.assertIsNone(self.tracing._current_tool_span)
+
+    def test_llm_call_emits_generation_nested_under_turn(self):
+        fake = _FakeLangfuseClient()
+        self.tracing._langfuse_client = fake
+        self.tracing.trace("user_prompt", prompt="hi")
+        turn_span = self.tracing._current_turn
+
+        response = types.SimpleNamespace(
+            stop_reason="end_turn",
+            usage=types.SimpleNamespace(input_tokens=100, output_tokens=40))
+        self.tracing.trace_llm_call(response, "test-model")
+
+        self.assertEqual(len(turn_span.children), 1)
+        generation = turn_span.children[0]
+        self.assertEqual(generation.as_type, "generation")
+        self.assertEqual(generation.kwargs.get("usage_details"),
+                         {"input": 100, "output": 40})
+        self.assertEqual(generation.end_calls, 1)
+
+    def test_real_langfuse_propagate_attributes_is_module_level_not_a_client_method(self):
+        """Regression guard: a hand-rolled fake once defined propagate_attributes
+        as a method on the fake client, matching a bug in tracing.py rather than
+        the real SDK -- every other test here passed while production would have
+        raised AttributeError on every turn. Assert the real shape directly."""
+        import langfuse
+        self.assertTrue(callable(langfuse.propagate_attributes))
+        self.assertFalse(hasattr(langfuse.Langfuse, "propagate_attributes"))
 
 
 class CronValidationTests(unittest.TestCase):

@@ -125,8 +125,30 @@ def trace(event: str, **fields):
     _emit_to_langfuse(event, fields)
 
 
+def _summarize_response_content(content) -> str:
+    """Best-effort text summary of a model response, for trace/Langfuse output.
+
+    Falls back to naming the tools called when the model produced no text
+    (a pure tool_use turn) so the summary is never just empty.
+    """
+    if content is None:
+        return ""
+    from .content import extract_text
+    text = extract_text(content)
+    if text:
+        return text
+    if isinstance(content, list):
+        names = [name for name in
+                 (getattr(b, "name", None) for b in content
+                  if getattr(b, "type", None) == "tool_use")
+                 if name]
+        if names:
+            return f"[tool_use: {', '.join(names)}]"
+    return ""
+
+
 def trace_llm_call(response, model: str):
-    """Record one model call's usage and stop_reason; update session totals."""
+    """Record one model call's usage, stop_reason, and output; update totals."""
     usage = getattr(response, "usage", None)
     input_tokens = getattr(usage, "input_tokens", 0) or 0
     output_tokens = getattr(usage, "output_tokens", 0) or 0
@@ -134,16 +156,19 @@ def trace_llm_call(response, model: str):
     TOTALS["input_tokens"] += input_tokens
     TOTALS["output_tokens"] += output_tokens
     stop_reason = getattr(response, "stop_reason", None)
+    output_text = _summarize_response_content(getattr(response, "content", None))
     trace("llm_call", model=model,
           stop_reason=stop_reason,
           input_tokens=input_tokens, output_tokens=output_tokens,
           total_input=TOTALS["input_tokens"],
-          total_output=TOTALS["output_tokens"])
-    _emit_llm_call_to_langfuse(model, input_tokens, output_tokens, stop_reason)
+          total_output=TOTALS["output_tokens"],
+          output_text=clip(output_text))
+    _emit_llm_call_to_langfuse(model, input_tokens, output_tokens, stop_reason,
+                               output_text)
 
 
 def _emit_llm_call_to_langfuse(model: str, input_tokens: int, output_tokens: int,
-                                stop_reason):
+                                stop_reason, output_text: str = ""):
     """Best-effort: record one LLM call as a Langfuse generation (never raises)."""
     if _current_turn is None:
         return
@@ -151,7 +176,7 @@ def _emit_llm_call_to_langfuse(model: str, input_tokens: int, output_tokens: int
         generation = _current_turn.start_observation(
             name="llm_call", as_type="generation", model=model,
             usage_details={"input": input_tokens, "output": output_tokens})
-        generation.update(output={"stop_reason": stop_reason})
+        generation.update(output={"stop_reason": stop_reason, "text": output_text})
         generation.end()
     except Exception:
         pass  # Langfuse must never break the agent loop

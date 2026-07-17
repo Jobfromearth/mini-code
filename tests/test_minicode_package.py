@@ -408,6 +408,49 @@ class LangfuseTracingTests(unittest.TestCase):
                          {"input": 100, "output": 40})
         self.assertEqual(generation.end_calls, 1)
 
+    def test_llm_call_output_includes_response_text(self):
+        fake = _FakeLangfuseClient()
+        self.tracing._langfuse_client = fake
+        self.tracing.trace("user_prompt", prompt="hi")
+
+        response = types.SimpleNamespace(
+            stop_reason="end_turn",
+            usage=types.SimpleNamespace(input_tokens=100, output_tokens=40),
+            content=[types.SimpleNamespace(type="text", text="Sure, here you go.")])
+        self.tracing.trace_llm_call(response, "test-model")
+
+        generation = self.tracing._current_turn.children[0]
+        update = generation.updates[-1]
+        self.assertEqual(update["output"]["text"], "Sure, here you go.")
+        self.assertEqual(update["output"]["stop_reason"], "end_turn")
+
+    def test_llm_call_output_falls_back_to_tool_summary_when_no_text(self):
+        fake = _FakeLangfuseClient()
+        self.tracing._langfuse_client = fake
+        self.tracing.trace("user_prompt", prompt="hi")
+
+        response = types.SimpleNamespace(
+            stop_reason="tool_use",
+            usage=types.SimpleNamespace(input_tokens=50, output_tokens=10),
+            content=[types.SimpleNamespace(type="tool_use", id="t1", name="bash",
+                                            input={"command": "ls"})])
+        self.tracing.trace_llm_call(response, "test-model")
+
+        generation = self.tracing._current_turn.children[0]
+        update = generation.updates[-1]
+        self.assertIn("bash", update["output"]["text"])
+
+    def test_llm_call_jsonl_record_includes_output_text(self):
+        response = types.SimpleNamespace(
+            stop_reason="end_turn",
+            usage=types.SimpleNamespace(input_tokens=5, output_tokens=5),
+            content=[types.SimpleNamespace(type="text", text="hello there")])
+        self.tracing.trace_llm_call(response, "test-model")
+        lines = self.config.TRACE_FILE.read_text(encoding="utf-8").splitlines()
+        import json
+        rec = json.loads(lines[-1])
+        self.assertEqual(rec["output_text"], "hello there")
+
     def test_real_langfuse_propagate_attributes_is_module_level_not_a_client_method(self):
         """Regression guard: a hand-rolled fake once defined propagate_attributes
         as a method on the fake client, matching a bug in tracing.py rather than
@@ -416,6 +459,34 @@ class LangfuseTracingTests(unittest.TestCase):
         import langfuse
         self.assertTrue(callable(langfuse.propagate_attributes))
         self.assertFalse(hasattr(langfuse.Langfuse, "propagate_attributes"))
+
+
+class StopHookOutputTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from minicode import config
+        self._orig_trace_file = config.TRACE_FILE
+        self._tmp = tempfile.TemporaryDirectory()
+        config.TRACE_FILE = Path(self._tmp.name) / "trace.jsonl"
+        self.config = config
+
+    def tearDown(self):
+        self.config.TRACE_FILE = self._orig_trace_file
+        self._tmp.cleanup()
+
+    def test_turn_end_includes_final_assistant_response_text(self):
+        import json
+        from minicode.hooks import stop_hook
+        messages = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": [
+                types.SimpleNamespace(type="text", text="Sure, here you go.")]},
+        ]
+        stop_hook(messages)
+        lines = self.config.TRACE_FILE.read_text(encoding="utf-8").splitlines()
+        rec = json.loads(lines[-1])
+        self.assertEqual(rec["event"], "turn_end")
+        self.assertEqual(rec["response_text"], "Sure, here you go.")
 
 
 class CronValidationTests(unittest.TestCase):

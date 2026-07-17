@@ -8,6 +8,7 @@ effect: registers the default hooks on import.
 """
 
 from . import config
+from .content import extract_text
 from .tools import safe_path
 from .tracing import clip, trace, usage_summary
 
@@ -105,7 +106,10 @@ def stop_hook(messages: list):
             tool_count += sum(1 for item in content
                               if isinstance(item, dict)
                               and item.get("type") == "tool_result")
-    trace("turn_end", tool_results=tool_count)
+    response_text = ""
+    if messages and messages[-1].get("role") == "assistant":
+        response_text = extract_text(messages[-1].get("content"))
+    trace("turn_end", tool_results=tool_count, response_text=clip(response_text))
     print(f"\033[90m[HOOK] Stop: {tool_count} tool result(s) | "
           f"{usage_summary()}\033[0m")
     return None

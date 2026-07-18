@@ -114,6 +114,7 @@ legacy_entry.py      向后兼容薄壳:`python legacy_entry.py` 仍可用
                      pytest/CI,详见 git 历史)
 skills/              skill 目录(带 YAML frontmatter 的 SKILL.md)
 deploy/langfuse/     自托管 Langfuse 的 docker-compose 栈
+deploy/lambda/       AWS Lambda handler 演示,完全本地运行(不需要 AWS 账号)
 docs/adr/            架构决策记录
 docs/agents/         工程类 skills 用到的 issue tracker / 分类标签约定
 CONTEXT.md           领域术语表(Session 与 Turn 的区分等)

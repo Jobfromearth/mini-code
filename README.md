@@ -114,6 +114,7 @@ legacy_entry.py      back-compat shim: `python legacy_entry.py` still works
                      in a clean checkout with no .env; see git history)
 skills/              skill catalog (SKILL.md with YAML frontmatter)
 deploy/langfuse/     self-hosted Langfuse docker-compose stack
+deploy/lambda/       AWS Lambda handler demo, runnable fully locally (no AWS account)
 docs/adr/            architecture decision records
 docs/agents/         issue-tracker / triage-label conventions for engineering skills
 CONTEXT.md           domain glossary (Session vs. Turn, etc.)

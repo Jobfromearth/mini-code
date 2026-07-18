@@ -1,0 +1,20 @@
+# systemd unit for deploy/lambda/server.py. Copy to /etc/systemd/system/,
+# edit User/WorkingDirectory/ExecStart for your VPS user and clone path, then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now minicode-demo
+
+[Unit]
+Description=minicode Lambda demo server
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/home/deploy/mini-code
+ExecStart=/home/deploy/mini-code/.venv/bin/python deploy/lambda/server.py 8080
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

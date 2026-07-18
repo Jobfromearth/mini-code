@@ -64,19 +64,14 @@ request in flight at a time. Fine for a low-traffic demo link, not for
 production concurrency.
 
 It has no auth or rate limiting beyond "every caller must supply their own
-key" -- reasonable for a portfolio link, not for anything sensitive. Put it
-behind nginx or Caddy for TLS and a domain, e.g.:
+key" -- reasonable for a portfolio link, not for anything sensitive.
 
-```nginx
-server {
-    listen 443 ssl;
-    server_name demo.example.com;
-    location / { proxy_pass http://127.0.0.1:8080; }
-}
-```
-
-Run `server.py` under `systemd` or `tmux`/`screen` so it survives your SSH
-session ending -- it's a plain foreground process otherwise.
+Run it as a persistent service (`minicode-demo.service`, a systemd unit --
+edit the placeholder user/path, drop it in `/etc/systemd/system/`, then
+`systemctl enable --now minicode-demo`) so it survives your SSH session
+ending, fronted by nginx (`nginx.conf`, a reverse-proxy site config --
+placeholder `server_name`, TLS via `certbot --nginx` once you have a domain
+pointed at the box) for a real port 80/443 and, later, HTTPS.
 
 ## Why the handler chdirs on import
 

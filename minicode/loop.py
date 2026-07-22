@@ -33,7 +33,7 @@ from .tracing import clip, trace, trace_llm_call
 def update_context(context: dict, messages: list) -> dict:
     """Refresh context from disk memory and runtime state (memory, MCP, teammates)."""
     memories = ""
-    if config.MEMORY_INDEX.exists():
+    if not config.ABLATE_MEMORY and config.MEMORY_INDEX.exists():
         memories = config.MEMORY_INDEX.read_text(encoding="utf-8")[:2000]
     return {
         "memories": memories,
@@ -88,14 +88,24 @@ def call_llm(messages: list, context: dict, tools: list,
         state)
 
 
-def agent_loop(messages: list, context: dict):
-    """Drive one full agent turn until the model stops requesting tools (mutates messages)."""
+def agent_loop(messages: list, context: dict, max_rounds: int | None = None):
+    """Drive one full agent turn until the model stops requesting tools (mutates messages).
+
+    ``max_rounds`` caps the number of model-call cycles; ``None`` (the default,
+    used by the interactive CLI) means uncapped. The eval harness passes a
+    finite cap so a runaway task terminates cleanly instead of looping forever.
+    """
     global rounds_since_todo
     tools, handlers = assemble_tool_pool()
     state = RecoveryState()
     max_tokens = config.DEFAULT_MAX_TOKENS
+    rounds = 0
 
     while True:
+        if max_rounds is not None and rounds >= max_rounds:
+            trace("max_rounds_reached", rounds=rounds)
+            return
+        rounds += 1
         # One cycle: inject scheduled/background work, prepare context, call
         # the model, execute tool_use blocks, append tool_results, repeat.
         fired = consume_cron_queue()

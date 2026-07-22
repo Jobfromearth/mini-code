@@ -36,9 +36,26 @@ TASKS_DIR = WORKDIR / ".tasks"
 WORKTREES_DIR = WORKDIR / ".worktrees"
 MAILBOX_DIR = WORKDIR / ".mailboxes"
 DURABLE_PATH = WORKDIR / ".scheduled_tasks.json"
-MEMORY_DIR = WORKDIR / ".memory"
+# MEMORY_DIR is env-overridable so an eval harness can point a whole task
+# sequence at one shared memory store (to measure cross-session reuse).
+MEMORY_DIR = Path(os.getenv("MINICODE_MEMORY_DIR", WORKDIR / ".memory"))
 MEMORY_INDEX = MEMORY_DIR / "MEMORY.md"
 TRACE_FILE = WORKDIR / ".traces" / "trace.jsonl"
+
+# ── Ablation flags (for the eval harness; default = every feature ON) ──
+# Each flag turns off one of the harness subsystems so its contribution can be
+# measured in isolation. Read once at import: the eval harness sets them in the
+# child process's environment before importing the package. See evals/README.md.
+ABLATE_MEMORY = os.getenv("MINICODE_ABLATE_MEMORY") == "1"
+ABLATE_MULTIAGENT = os.getenv("MINICODE_ABLATE_MULTIAGENT") == "1"
+ABLATE_SKILLS = os.getenv("MINICODE_ABLATE_SKILLS") == "1"
+
+# The tool names that make up the multi-agent layer (subagent + teammate
+# protocol). Dropped from the tool pool when ABLATE_MULTIAGENT is set.
+MULTIAGENT_TOOLS = frozenset({
+    "task", "spawn_teammate", "send_message", "check_inbox",
+    "request_shutdown", "request_plan", "review_plan",
+})
 
 # ── Tuning constants ──
 DEFAULT_MAX_TOKENS = 8000

@@ -1,0 +1,6 @@
+{
+  "id": "implement-anagram",
+  "prompt": "Implement the function in anagram.py in the current working directory. are_anagrams(a, b) must return True if strings a and b are anagrams of each other, ignoring case and whitespace and counting only alphanumeric characters, and False otherwise. Replace the NotImplementedError body with a correct implementation. Do not rename the file or the function.",
+  "max_rounds": 20,
+  "timeout_seconds": 240
+}

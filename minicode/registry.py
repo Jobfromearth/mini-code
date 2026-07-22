@@ -280,10 +280,26 @@ BUILTIN_HANDLERS = {
 }
 
 
+def _ablated_tool_names() -> set:
+    """Tool names to drop from the pool under the active ablation flags."""
+    from . import config
+    excluded = set()
+    if config.ABLATE_MULTIAGENT:
+        excluded |= set(config.MULTIAGENT_TOOLS)
+    if config.ABLATE_SKILLS:
+        excluded.add("load_skill")
+    return excluded
+
+
 def assemble_tool_pool() -> tuple[list[dict], dict]:
-    """Merge builtin tools + all connected MCP tools; return (schemas, handlers)."""
-    tools = list(BUILTIN_TOOLS)
-    handlers = dict(BUILTIN_HANDLERS)
+    """Merge builtin tools + all connected MCP tools; return (schemas, handlers).
+
+    Ablation flags (see config) remove whole capabilities from the pool so the
+    eval harness can measure each subsystem's contribution.
+    """
+    excluded = _ablated_tool_names()
+    tools = [t for t in BUILTIN_TOOLS if t["name"] not in excluded]
+    handlers = {n: h for n, h in BUILTIN_HANDLERS.items() if n not in excluded}
     for server_name, mcp_client in mcp.mcp_clients.items():
         safe_server = mcp.normalize_mcp_name(server_name)
         for tool_def in mcp_client.tools:

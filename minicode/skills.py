@@ -101,8 +101,9 @@ def assemble_system_prompt(context: dict) -> str:
                 PROMPT_SECTIONS["tools"],
                 PROMPT_SECTIONS["workspace"]]
     sections.append(f"Current time: {datetime.now().isoformat(timespec='seconds')}")
-    sections.append("Skills catalog:\n" + list_skills() +
-                    "\nUse load_skill(name) when a skill is relevant.")
+    if not config.ABLATE_SKILLS:
+        sections.append("Skills catalog:\n" + list_skills() +
+                        "\nUse load_skill(name) when a skill is relevant.")
     if context.get("memories"):
         sections.append(f"Relevant memories:\n{context['memories']}")
     mcp_names = list(mcp.mcp_clients.keys())

@@ -1,0 +1,6 @@
+{
+  "id": "fix-palindrome",
+  "prompt": "There is a bug in palindrome.py in the current working directory. is_palindrome(s) must return True when s reads the same forwards and backwards considering only alphanumeric characters and ignoring case, and False otherwise. Fix the bug by editing palindrome.py in place. Do not rename the file or the function.",
+  "max_rounds": 20,
+  "timeout_seconds": 240
+}
